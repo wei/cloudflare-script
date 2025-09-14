@@ -1,6 +1,6 @@
-import type Cloudflare from "cloudflare";
 import * as vm from "node:vm";
 import * as core from "@actions/core";
+import type Cloudflare from "cloudflare";
 
 export class CloudflareRunner {
 	private apiToken: string;
@@ -37,7 +37,7 @@ export class CloudflareRunner {
 				clearInterval,
 				require: (moduleName: string) => {
 					// Only allow specific safe modules
-					const allowedModules = ["util", "path", "querystring"];
+					const allowedModules = ["util", "path", "querystring", "url", "fs"];
 					if (allowedModules.includes(moduleName)) {
 						return require(moduleName);
 					}

@@ -31431,7 +31431,7 @@ class CloudflareRunner {
                 clearInterval,
                 require: (moduleName) => {
                     // Only allow specific safe modules
-                    const allowedModules = ["util", "path", "querystring"];
+                    const allowedModules = ["util", "path", "querystring", "url", "fs"];
                     if (allowedModules.includes(moduleName)) {
                         return require(moduleName);
                     }

@@ -8,7 +8,9 @@
     "package": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
     "test": "jest",
     "lint": "biome check ./src",
-    "format": "biome format --write ./src"
+    "lint:fix": "biome check --fix ./src",
+    "format": "biome format --write ./src",
+    "format:fix": "biome format --fix ./src"
   },
   "repository": {
     "type": "git",
