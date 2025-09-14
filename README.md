@@ -28,7 +28,7 @@ The result of the script execution, if the script returns a value.
 
 ```yaml
 - name: Execute Cloudflare Script
-  uses: wei/cloudflare-script@v1
+  uses: wei/cloudflare-script@master
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   with:
@@ -36,7 +36,7 @@ The result of the script execution, if the script returns a value.
       // List all zones
       const zones = await cloudflare.zones.list();
       console.log(`Found ${zones.result.length} zones`);
-      
+
       // Return zone count for use in other steps
       return zones.result.length;
 ```
@@ -45,7 +45,7 @@ The result of the script execution, if the script returns a value.
 
 ```yaml
 - name: Update DNS Record
-  uses: wei/cloudflare-script@v1
+  uses: wei/cloudflare-script@master
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   with:
@@ -54,20 +54,20 @@ The result of the script execution, if the script returns a value.
       const zones = await cloudflare.zones.list({
         name: 'example.com'
       });
-      
+
       if (zones.result.length === 0) {
         throw new Error('Zone not found');
       }
-      
+
       const zoneId = zones.result[0].id;
-      
+
       // List DNS records
       const records = await cloudflare.dns.records.list({
         zone_id: zoneId,
         name: 'api.example.com',
         type: 'A'
       });
-      
+
       if (records.result.length > 0) {
         // Update existing record
         const recordId = records.result[0].id;
@@ -95,7 +95,7 @@ The result of the script execution, if the script returns a value.
 ```yaml
 - name: Get Zone Info
   id: zone-info
-  uses: wei/cloudflare-script@v1
+  uses: wei/cloudflare-script@master
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   with:
