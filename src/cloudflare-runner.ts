@@ -1,3 +1,4 @@
+import type Cloudflare from "cloudflare";
 import * as vm from "node:vm";
 import * as core from "@actions/core";
 
@@ -11,10 +12,10 @@ export class CloudflareRunner {
 	async execute(script: string): Promise<unknown> {
 		try {
 			// Import Cloudflare SDK dynamically
-			const Cloudflare = await this.importCloudflareSDK();
+			const CloudflareSDK = await this.importCloudflareSDK();
 
 			// Create Cloudflare client instance
-			const cloudflare = new Cloudflare({
+			const cloudflare = new CloudflareSDK({
 				apiToken: this.apiToken,
 			});
 
@@ -67,7 +68,7 @@ export class CloudflareRunner {
 		}
 	}
 
-	private async importCloudflareSDK(): Promise<unknown> {
+	private async importCloudflareSDK(): Promise<typeof Cloudflare> {
 		try {
 			// Dynamic import of the Cloudflare SDK
 			const cloudflareModule = await import("cloudflare");
