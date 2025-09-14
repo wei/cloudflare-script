@@ -1,0 +1,74 @@
+name: Example Cloudflare Script Usage
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone_name:
+        description: 'Zone name to query'
+        required: true
+        default: 'example.com'
+
+jobs:
+  cloudflare-operations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List Zones
+        id: list-zones
+        uses: ./
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        with:
+          script: |
+            // List all zones
+            const zones = await cloudflare.zones.list();
+            console.log(`Found ${zones.result.length} zones`);
+            
+            zones.result.forEach(zone => {
+              console.log(`Zone: ${zone.name} (${zone.id})`);
+            });
+            
+            return {
+              count: zones.result.length,
+              zones: zones.result.map(z => ({ name: z.name, id: z.id }))
+            };
+
+      - name: Query Specific Zone
+        uses: ./
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        with:
+          script: |
+            const zoneName = '${{ inputs.zone_name }}';
+            console.log(`Querying zone: ${zoneName}`);
+            
+            // Find specific zone
+            const zones = await cloudflare.zones.list({
+              name: zoneName
+            });
+            
+            if (zones.result.length === 0) {
+              console.log(`Zone ${zoneName} not found`);
+              return null;
+            }
+            
+            const zone = zones.result[0];
+            console.log(`Found zone: ${zone.name} (Status: ${zone.status})`);
+            
+            // Get DNS records for this zone
+            const records = await cloudflare.dns.records.list({
+              zone_id: zone.id
+            });
+            
+            console.log(`Zone has ${records.result.length} DNS records`);
+            
+            records.result.slice(0, 5).forEach(record => {
+              console.log(`  ${record.type} ${record.name} -> ${record.content}`);
+            });
+
+      - name: Display Results
+        run: |
+          echo "Zone count: ${{ fromJSON(steps.list-zones.outputs.result).count }}"
+          echo "First zone: ${{ fromJSON(steps.list-zones.outputs.result).zones[0].name }}"

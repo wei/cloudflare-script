@@ -1,0 +1,20 @@
+name: 'cloudflare-script'
+description: 'Run inline scripts using the Cloudflare TypeScript SDK'
+author: 'wei'
+branding:
+  icon: 'cloud'
+  color: 'orange'
+inputs:
+  script:
+    description: 'TypeScript script to execute using Cloudflare SDK'
+    required: true
+  version:
+    description: 'Version of Cloudflare TypeScript SDK to use'
+    required: false
+    default: 'latest'
+outputs:
+  result:
+    description: 'The result of the script execution, if the script returns a value'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
