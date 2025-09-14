@@ -5,4 +5,3 @@ export declare class CloudflareRunner {
     execute(script: string): Promise<any>;
     private importCloudflareSDK;
 }
-//# sourceMappingURL=cloudflare-runner.d.ts.map

@@ -1,0 +1,1 @@
+{"version":3,"file":"","sourceRoot":"","sources":["file:///home/runner/work/cloudflare-script/cloudflare-script/src/cloudflare-runner.ts"],"names":[],"mappings":"AAGA,qBAAa,gBAAgB;IAC3B,OAAO,CAAC,QAAQ,CAAS;IACzB,OAAO,CAAC,OAAO,CAAS;gBAEZ,QAAQ,EAAE,MAAM,EAAE,OAAO,EAAE,MAAM;IAKvC,OAAO,CAAC,MAAM,EAAE,MAAM,GAAG,OAAO,CAAC,GAAG,CAAC;YA2D7B,mBAAmB;CAUlC"}
