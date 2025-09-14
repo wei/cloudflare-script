@@ -1,7 +1,6 @@
 export declare class CloudflareRunner {
     private apiToken;
-    private version;
-    constructor(apiToken: string, version: string);
+    constructor(apiToken: string);
     execute(script: string): Promise<any>;
     private importCloudflareSDK;
 }

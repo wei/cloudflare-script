@@ -8,7 +8,7 @@ describe('CloudflareRunner', () => {
   const mockApiToken = 'test-token';
 
   beforeEach(() => {
-    runner = new CloudflareRunner(mockApiToken, 'latest');
+    runner = new CloudflareRunner(mockApiToken);
     jest.clearAllMocks();
   });
 
@@ -35,7 +35,7 @@ describe('CloudflareRunner', () => {
   });
 
   it('should throw error for invalid API token during construction', () => {
-    expect(() => new CloudflareRunner('', 'latest')).not.toThrow();
+    expect(() => new CloudflareRunner('')).not.toThrow();
     // The actual validation happens during execution
   });
 });

@@ -8,10 +8,6 @@ inputs:
   script:
     description: 'TypeScript script to execute using Cloudflare SDK'
     required: true
-  version:
-    description: 'Version of Cloudflare TypeScript SDK to use'
-    required: false
-    default: 'latest'
 outputs:
   result:
     description: 'The result of the script execution, if the script returns a value'

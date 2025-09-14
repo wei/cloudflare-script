@@ -3,11 +3,9 @@ import * as vm from 'vm';
 
 export class CloudflareRunner {
   private apiToken: string;
-  private version: string;
 
-  constructor(apiToken: string, version: string) {
+  constructor(apiToken: string) {
     this.apiToken = apiToken;
-    this.version = version;
   }
 
   async execute(script: string): Promise<any> {
@@ -76,7 +74,7 @@ export class CloudflareRunner {
       return cloudflareModule.default || cloudflareModule;
     } catch (error) {
       core.error(`Failed to import Cloudflare SDK: ${error}`);
-      throw new Error(`Failed to import Cloudflare SDK version ${this.version}: ${error}`);
+      throw new Error(`Failed to import Cloudflare SDK: ${error}`);
     }
   }
 }

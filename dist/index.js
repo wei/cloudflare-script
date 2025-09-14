@@ -39113,9 +39113,8 @@ exports.CloudflareRunner = void 0;
 const core = __importStar(__nccwpck_require__(37484));
 const vm = __importStar(__nccwpck_require__(69154));
 class CloudflareRunner {
-    constructor(apiToken, version) {
+    constructor(apiToken) {
         this.apiToken = apiToken;
-        this.version = version;
     }
     async execute(script) {
         try {
@@ -39179,7 +39178,7 @@ class CloudflareRunner {
         }
         catch (error) {
             core.error(`Failed to import Cloudflare SDK: ${error}`);
-            throw new Error(`Failed to import Cloudflare SDK version ${this.version}: ${error}`);
+            throw new Error(`Failed to import Cloudflare SDK: ${error}`);
         }
     }
 }
@@ -39232,15 +39231,13 @@ const cloudflare_runner_1 = __nccwpck_require__(9227);
 async function run() {
     try {
         const script = core.getInput('script', { required: true });
-        const version = core.getInput('version') || 'latest';
         // Check for required CLOUDFLARE_API_TOKEN environment variable
         const apiToken = process.env.CLOUDFLARE_API_TOKEN;
         if (!apiToken) {
             throw new Error('CLOUDFLARE_API_TOKEN environment variable is required');
         }
-        core.info(`Using Cloudflare SDK version: ${version}`);
         core.info('Executing Cloudflare script...');
-        const runner = new cloudflare_runner_1.CloudflareRunner(apiToken, version);
+        const runner = new cloudflare_runner_1.CloudflareRunner(apiToken);
         const result = await runner.execute(script);
         // Set outputs if the script returns a value
         if (result !== undefined) {

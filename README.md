@@ -10,10 +10,6 @@ This action is modeled after `actions/github-script` and allows you to execute T
 
 The TypeScript script to execute. The script has access to a pre-configured `cloudflare` client instance.
 
-### `version` (optional)
-
-Version of the Cloudflare TypeScript SDK to use. Defaults to `latest`.
-
 ## Environment Variables
 
 ### `CLOUDFLARE_API_TOKEN` (required)
@@ -123,6 +119,8 @@ The script execution context includes:
 - `cloudflare`: Pre-configured Cloudflare SDK client instance
 - `console`: Console methods for logging (`log`, `error`, `warn`, `info`)
 - Standard JavaScript objects: `JSON`, `Promise`, `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`
+
+**Note**: The Cloudflare SDK version is bundled with the action at build time. This action currently includes Cloudflare SDK v3.5.0. To use a specific SDK version, you would need to use a specific version/tag of this action that includes the desired SDK version.
 
 ## Security
 
