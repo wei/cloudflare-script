@@ -120,7 +120,7 @@ The script execution context includes:
 - `console`: Console methods for logging (`log`, `error`, `warn`, `info`)
 - Standard JavaScript objects: `JSON`, `Promise`, `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`
 
-**Note**: The Cloudflare SDK version is bundled with the action at build time. This action currently includes Cloudflare SDK v3.5.0. To use a specific SDK version, you would need to use a specific version/tag of this action that includes the desired SDK version.
+**Note**: The Cloudflare SDK version is bundled with the action at build time. This action currently includes Cloudflare SDK v5.1.0.
 
 ## Security
 
