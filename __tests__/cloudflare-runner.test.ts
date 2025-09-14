@@ -1,9 +1,7 @@
-import * as core from '@actions/core';
 import { CloudflareRunner } from '../src/cloudflare-runner';
 
 // Mock @actions/core
 jest.mock('@actions/core');
-const mockedCore = core as jest.Mocked<typeof core>;
 
 describe('CloudflareRunner', () => {
   let runner: CloudflareRunner;
