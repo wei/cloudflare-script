@@ -1,0 +1,146 @@
+name: Release Cloudflare SDK Updates
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Determine Cloudflare versions
+        id: versions
+        shell: bash
+        run: |
+          set -eo pipefail
+          current=$(node -pe "const pkg=require('./package.json'); process.stdout.write((pkg.dependencies && pkg.dependencies.cloudflare) || '')")
+          current=${current#^}
+          current=${current#~}
+          current=${current#=}
+          latest=$(npm view cloudflare version)
+          echo "Current Cloudflare version: ${current:-none}"
+          echo "Latest Cloudflare version: ${latest:-unknown}"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+          if [ -n "$latest" ] && [ "$latest" != "$current" ]; then
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cloudflare dependency is already current
+        if: steps.versions.outputs.needs_update != 'true'
+        run: echo "Cloudflare dependency already at v${{ steps.versions.outputs.current }}."
+
+      - name: Configure git
+        if: steps.versions.outputs.needs_update == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update Cloudflare dependency
+        if: steps.versions.outputs.needs_update == 'true'
+        env:
+          CLOUDFLARE_VERSION: ${{ steps.versions.outputs.latest }}
+        run: |
+          npm install cloudflare@${CLOUDFLARE_VERSION} --save-exact
+
+      - name: Install dependencies
+        if: steps.versions.outputs.needs_update == 'true'
+        run: npm install
+
+      - name: Build action bundle
+        if: steps.versions.outputs.needs_update == 'true'
+        run: npm run build
+
+      - name: Commit dependency and build updates
+        if: steps.versions.outputs.needs_update == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.latest }}
+        run: |
+          set -eo pipefail
+          git add package.json package-lock.json dist
+          if git diff --cached --quiet; then
+            echo "No generated changes detected; aborting release." >&2
+            exit 1
+          fi
+          git commit -m "chore: update cloudflare to v${VERSION}"
+
+      - name: Create version tags
+        if: steps.versions.outputs.needs_update == 'true'
+        id: tagging
+        env:
+          VERSION: ${{ steps.versions.outputs.latest }}
+        run: |
+          set -eo pipefail
+          full="v${VERSION}"
+          major="v${VERSION%%.*}"
+          if git rev-parse -q --verify "refs/tags/${full}" >/dev/null; then
+            echo "Tag ${full} already exists; aborting to prevent overwriting." >&2
+            exit 1
+          fi
+          git tag -a "${full}" -m "Release Cloudflare SDK ${full}"
+          git tag -fa "${major}" -m "Release Cloudflare SDK ${full}"
+          echo "full=${full}" >> "$GITHUB_OUTPUT"
+          echo "major=${major}" >> "$GITHUB_OUTPUT"
+
+      - name: Push changes and tags
+        if: steps.versions.outputs.needs_update == 'true'
+        env:
+          FULL_TAG: ${{ steps.tagging.outputs.full }}
+          MAJOR_TAG: ${{ steps.tagging.outputs.major }}
+        run: |
+          set -eo pipefail
+          git push origin HEAD
+          git push origin "${FULL_TAG}"
+          git push --force origin "${MAJOR_TAG}"
+
+      - name: Create GitHub release
+        if: steps.versions.outputs.needs_update == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = '${{ steps.versions.outputs.latest }}';
+            const previous = '${{ steps.versions.outputs.current || 'unknown' }}';
+            const tag = `v${version}`;
+            const body = [
+              `## Summary`,
+              `- Update Cloudflare SDK from v${previous} to v${version}`,
+              '',
+              `This release was generated automatically when a new Cloudflare SDK version became available.`,
+            ].join('\n');
+            try {
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: `Cloudflare SDK ${tag}`,
+                body,
+              });
+            } catch (error) {
+              if (error.status === 422) {
+                core.info(`Release for ${tag} already exists; skipping.`);
+              } else {
+                throw error;
+              }
+            }

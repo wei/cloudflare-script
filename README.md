@@ -28,7 +28,7 @@ The result of the script execution, if the script returns a value.
 
 ```yaml
 - name: Execute Cloudflare Script
-  uses: wei/cloudflare-script@master
+  uses: wei/cloudflare-script@v5
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   with:
@@ -45,7 +45,7 @@ The result of the script execution, if the script returns a value.
 
 ```yaml
 - name: Update DNS Record
-  uses: wei/cloudflare-script@master
+  uses: wei/cloudflare-script@v5
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   with:
@@ -95,7 +95,7 @@ The result of the script execution, if the script returns a value.
 ```yaml
 - name: Get Zone Info
   id: zone-info
-  uses: wei/cloudflare-script@master
+  uses: wei/cloudflare-script@v5
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   with:
@@ -120,7 +120,15 @@ The script execution context includes:
 - `console`: Console methods for logging (`log`, `error`, `warn`, `info`)
 - Standard JavaScript objects: `JSON`, `Promise`, `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`
 
-**Note**: The Cloudflare SDK version is bundled with the action at build time. This action currently includes Cloudflare SDK v5.1.0.
+## Versioning & Releases
+
+Automated release tooling keeps this action aligned with the latest Cloudflare TypeScript SDK:
+
+- A daily scheduled workflow (also runnable manually) checks npm for new `cloudflare` releases. When a new version is available the workflow updates the dependency, rebuilds the bundled action, commits the changes, and publishes a GitHub release with matching tags.
+- Each release is tagged with the Cloudflare SDK version (`v5.2.1`) and a moving major tag (`v5`) that always points to the latest release within that major series.
+- Reference the action using a major tag such as `wei/cloudflare-script@v5` for automatic minor/patch updates, or pin to an exact release tag if you need a fixed SDK version.
+
+Release notes document the Cloudflare SDK version change so you can see exactly what has been updated.
 
 ## Security
 
