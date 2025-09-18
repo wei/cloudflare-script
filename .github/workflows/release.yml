@@ -16,15 +16,15 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Determine Cloudflare versions
@@ -110,7 +110,7 @@ jobs:
           MAJOR_TAG: ${{ steps.tagging.outputs.major }}
         run: |
           set -eo pipefail
-          git push origin HEAD
+          git push origin HEAD:master
           git push origin "${FULL_TAG}"
           git push --force origin "${MAJOR_TAG}"
 
