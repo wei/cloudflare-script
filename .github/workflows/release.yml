@@ -37,15 +37,17 @@ jobs:
           current=${current#~}
           current=${current#=}
           latest=$(npm view cloudflare version)
+          needs_update=false
+          if [ -n "$latest" ] && [ "$latest" != "$current" ]; then
+            needs_update=true
+          fi
           echo "Current Cloudflare version: ${current:-none}"
           echo "Latest Cloudflare version: ${latest:-unknown}"
-          echo "current=${current}" >> "$GITHUB_OUTPUT"
-          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
-          if [ -n "$latest" ] && [ "$latest" != "$current" ]; then
-            echo "needs_update=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs_update=false" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            printf 'needs_update=%s\n' "$needs_update"
+            printf 'current=%s\n' "$current"
+            printf 'latest=%s\n' "$latest"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Cloudflare dependency is already current
         if: steps.versions.outputs.needs_update != 'true'
@@ -99,8 +101,8 @@ jobs:
             echo "Tag ${full} already exists; aborting to prevent overwriting." >&2
             exit 1
           fi
-          git tag -a "${full}" -m "Release Cloudflare SDK ${full}"
-          git tag -fa "${major}" -m "Release Cloudflare SDK ${full}"
+          git tag -a "${full}" -m "Release Cloudflare Script Action ${full}"
+          git tag -fa "${major}" -m "Release Cloudflare Script Action ${full}"
           echo "full=${full}" >> "$GITHUB_OUTPUT"
           echo "major=${major}" >> "$GITHUB_OUTPUT"
 
@@ -135,7 +137,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 tag_name: tag,
-                name: `Cloudflare SDK ${tag}`,
+                name: `Cloudflare Script Action ${tag}`,
                 body,
               });
             } catch (error) {
