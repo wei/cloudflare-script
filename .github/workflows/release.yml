@@ -76,19 +76,22 @@ jobs:
 
       - name: Commit dependency and build updates
         if: steps.versions.outputs.needs_update == 'true'
+        id: commit
         env:
           VERSION: ${{ steps.versions.outputs.latest }}
         run: |
           set -eo pipefail
           git add package.json package-lock.json dist
           if git diff --cached --quiet; then
-            echo "No generated changes detected; aborting release." >&2
-            exit 1
+            echo "No generated changes detected; skipping release."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore: update cloudflare to v${VERSION}"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
-          git commit -m "chore: update cloudflare to v${VERSION}"
 
       - name: Create version tags
-        if: steps.versions.outputs.needs_update == 'true'
+        if: steps.versions.outputs.needs_update == 'true' && steps.commit.outputs.has_changes == 'true'
         id: tagging
         env:
           VERSION: ${{ steps.versions.outputs.latest }}
@@ -107,7 +110,7 @@ jobs:
           echo "major=${major}" >> "$GITHUB_OUTPUT"
 
       - name: Push changes and tags
-        if: steps.versions.outputs.needs_update == 'true'
+        if: steps.versions.outputs.needs_update == 'true' && steps.commit.outputs.has_changes == 'true'
         env:
           FULL_TAG: ${{ steps.tagging.outputs.full }}
           MAJOR_TAG: ${{ steps.tagging.outputs.major }}
@@ -118,7 +121,7 @@ jobs:
           git push --force origin "${MAJOR_TAG}"
 
       - name: Create GitHub release
-        if: steps.versions.outputs.needs_update == 'true'
+        if: steps.versions.outputs.needs_update == 'true' && steps.commit.outputs.has_changes == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
