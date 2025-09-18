@@ -93,6 +93,7 @@ jobs:
         run: |
           set -eo pipefail
           full="v${VERSION}"
+          # Extract the major version number from VERSION (e.g., "2.3.4" -> "2")
           major="v${VERSION%%.*}"
           if git rev-parse -q --verify "refs/tags/${full}" >/dev/null; then
             echo "Tag ${full} already exists; aborting to prevent overwriting." >&2
@@ -139,7 +140,7 @@ jobs:
               });
             } catch (error) {
               if (error.status === 422) {
-                core.info(`Release for ${tag} already exists; skipping.`);
+                console.log(`Release for ${tag} already exists; skipping.`);
               } else {
                 throw error;
               }
