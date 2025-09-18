@@ -12,9 +12,6 @@ jobs:
   cloudflare-operations:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: List Zones
         id: list-zones
         uses: ./
@@ -25,11 +22,11 @@ jobs:
             // List all zones
             const zones = await cloudflare.zones.list();
             console.log(`Found ${zones.result.length} zones`);
-            
+
             zones.result.forEach(zone => {
               console.log(`Zone: ${zone.name} (${zone.id})`);
             });
-            
+
             return {
               count: zones.result.length,
               zones: zones.result.map(z => ({ name: z.name, id: z.id }))
@@ -43,27 +40,27 @@ jobs:
           script: |
             const zoneName = '${{ inputs.zone_name }}';
             console.log(`Querying zone: ${zoneName}`);
-            
+
             // Find specific zone
             const zones = await cloudflare.zones.list({
               name: zoneName
             });
-            
+
             if (zones.result.length === 0) {
               console.log(`Zone ${zoneName} not found`);
               return null;
             }
-            
+
             const zone = zones.result[0];
             console.log(`Found zone: ${zone.name} (Status: ${zone.status})`);
-            
+
             // Get DNS records for this zone
             const records = await cloudflare.dns.records.list({
               zone_id: zone.id
             });
-            
+
             console.log(`Zone has ${records.result.length} DNS records`);
-            
+
             records.result.slice(0, 5).forEach(record => {
               console.log(`  ${record.type} ${record.name} -> ${record.content}`);
             });

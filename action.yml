@@ -12,5 +12,5 @@ outputs:
   result:
     description: 'The result of the script execution, if the script returns a value'
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
