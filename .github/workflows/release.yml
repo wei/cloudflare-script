@@ -86,7 +86,7 @@ jobs:
             echo "No generated changes detected; skipping release."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "chore: update cloudflare to v${VERSION}"
+            git commit -m "deps: update cloudflare to v${VERSION}"
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
