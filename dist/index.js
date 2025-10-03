@@ -38624,6 +38624,8 @@ const AuthorsAPI = __importStar(__nccwpck_require__(70771));
 const authors_1 = __nccwpck_require__(70771);
 const TasksAPI = __importStar(__nccwpck_require__(6121));
 const tasks_1 = __nccwpck_require__(6121);
+const ToMarkdownAPI = __importStar(__nccwpck_require__(22554));
+const to_markdown_1 = __nccwpck_require__(22554);
 const FinetunesAPI = __importStar(__nccwpck_require__(54784));
 const finetunes_1 = __nccwpck_require__(54784);
 const ModelsAPI = __importStar(__nccwpck_require__(53858));
@@ -38635,6 +38637,7 @@ class AI extends resource_1.APIResource {
         this.authors = new AuthorsAPI.Authors(this._client);
         this.tasks = new TasksAPI.Tasks(this._client);
         this.models = new ModelsAPI.Models(this._client);
+        this.toMarkdown = new ToMarkdownAPI.ToMarkdown(this._client);
     }
     /**
      * This endpoint provides users with the capability to run specific AI models
@@ -38663,6 +38666,8 @@ AI.Tasks = tasks_1.Tasks;
 AI.TaskListResponsesSinglePage = tasks_1.TaskListResponsesSinglePage;
 AI.Models = models_1.Models;
 AI.ModelListResponsesV4PagePaginationArray = models_1.ModelListResponsesV4PagePaginationArray;
+AI.ToMarkdown = to_markdown_1.ToMarkdown;
+AI.ToMarkdownTransformResponsesSinglePage = to_markdown_1.ToMarkdownTransformResponsesSinglePage;
 //# sourceMappingURL=ai.js.map
 
 /***/ }),
@@ -38941,6 +38946,40 @@ class TaskListResponsesSinglePage extends pagination_1.SinglePage {
 exports.TaskListResponsesSinglePage = TaskListResponsesSinglePage;
 Tasks.TaskListResponsesSinglePage = TaskListResponsesSinglePage;
 //# sourceMappingURL=tasks.js.map
+
+/***/ }),
+
+/***/ 22554:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ToMarkdownTransformResponsesSinglePage = exports.ToMarkdown = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class ToMarkdown extends resource_1.APIResource {
+    /**
+     * Convert Files into Markdown
+     */
+    transform(file, params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai/tomarkdown`, ToMarkdownTransformResponsesSinglePage, {
+            body: file,
+            method: 'post',
+            ...options,
+            headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+            __binaryRequest: true,
+        });
+    }
+}
+exports.ToMarkdown = ToMarkdown;
+class ToMarkdownTransformResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.ToMarkdownTransformResponsesSinglePage = ToMarkdownTransformResponsesSinglePage;
+ToMarkdown.ToMarkdownTransformResponsesSinglePage = ToMarkdownTransformResponsesSinglePage;
+//# sourceMappingURL=to-markdown.js.map
 
 /***/ }),
 
@@ -40667,6 +40706,7 @@ class BotManagement extends resource_1.APIResource {
      * const botManagement = await client.botManagement.update({
      *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   ai_bots_protection: 'disabled',
+     *   cf_robots_variant: 'off',
      *   crawler_protection: 'disabled',
      *   enable_js: true,
      *   fight_mode: true,
@@ -41995,7 +42035,7 @@ class TURN extends resource_1.APIResource {
      */
     create(params, options) {
         const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/calls/turn_keys`, { body, ...options });
+        return this._client.post(`/accounts/${account_id}/calls/turn_keys`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Edit details for a single TURN key.
@@ -43352,36 +43392,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Crons = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Crons extends resource_1.APIResource {
-    /**
-     * Reads the last cron update time
-     *
-     * @example
-     * ```ts
-     * const crons =
-     *   await client.cloudforceOne.threatEvents.crons.list({
-     *     account_id: 'account_id',
-     *   });
-     * ```
-     */
-    list(params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/cron`, options);
-    }
-    /**
-     * Reads the last cron update time
-     *
-     * @example
-     * ```ts
-     * const response =
-     *   await client.cloudforceOne.threatEvents.crons.edit({
-     *     account_id: 'account_id',
-     *   });
-     * ```
-     */
-    edit(params, options) {
-        const { account_id } = params;
-        return this._client.patch(`/accounts/${account_id}/cloudforce-one/events/cron`, options);
-    }
 }
 exports.Crons = Crons;
 //# sourceMappingURL=crons.js.map
@@ -43531,22 +43541,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Health = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Health extends resource_1.APIResource {
-    /**
-     * Benchmark Durable Object warmup
-     *
-     * @example
-     * ```ts
-     * const health =
-     *   await client.cloudforceOne.threatEvents.datasets.health.get(
-     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
-     *     { account_id: 'account_id' },
-     *   );
-     * ```
-     */
-    get(datasetId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/dataset/${datasetId}/health`, options);
-    }
 }
 exports.Health = Health;
 //# sourceMappingURL=health.js.map
@@ -43746,14 +43740,14 @@ exports.Tags = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Tags extends resource_1.APIResource {
     /**
-     * Creates a new tag
+     * Creates a new tag to be used accross threat events.
      *
      * @example
      * ```ts
      * const tag =
      *   await client.cloudforceOne.threatEvents.tags.create({
      *     account_id: 'account_id',
-     *     name: 'name',
+     *     value: 'APT28',
      *   });
      * ```
      */
@@ -43887,6 +43881,7 @@ class ThreatEvents extends resource_1.APIResource {
      *     category: 'Domain Resolution',
      *     date: '2022-04-01T00:00:00Z',
      *     event: 'An attacker registered the domain domain.com',
+     *     indicatorType: 'domain',
      *     raw: { data: { foo: 'bar' } },
      *     tlp: 'amber',
      *   });
@@ -43951,6 +43946,7 @@ class ThreatEvents extends resource_1.APIResource {
      *         date: '2022-04-01T00:00:00Z',
      *         event:
      *           'An attacker registered the domain domain.com',
+     *         indicatorType: 'domain',
      *         raw: { data: { foo: 'bar' } },
      *         tlp: 'amber',
      *       },
@@ -45892,6 +45888,7 @@ exports.DNS = DNS;
 DNS.DNSSECResource = dnssec_1.DNSSECResource;
 DNS.Records = records_1.Records;
 DNS.RecordResponsesV4PagePaginationArray = records_1.RecordResponsesV4PagePaginationArray;
+DNS.RecordResponsesSinglePage = records_1.RecordResponsesSinglePage;
 DNS.Settings = settings_1.Settings;
 DNS.Analytics = analytics_1.Analytics;
 DNS.ZoneTransfers = zone_transfers_1.ZoneTransfers;
@@ -45987,7 +45984,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.RecordResponsesV4PagePaginationArray = exports.Records = void 0;
+exports.RecordResponsesSinglePage = exports.RecordResponsesV4PagePaginationArray = exports.Records = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const Core = __importStar(__nccwpck_require__(75487));
 const pagination_1 = __nccwpck_require__(30404);
@@ -46205,24 +46202,78 @@ class Records extends resource_1.APIResource {
      * Scan for common DNS records on your domain and automatically add them to your
      * zone. Useful if you haven't updated your nameservers yet.
      *
-     * @example
-     * ```ts
-     * const response = await client.dns.records.scan({
-     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   body: {},
-     * });
-     * ```
+     * @deprecated This endpoint is deprecated in favor of a new asynchronous version. Please use the [/scan/trigger](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/scan/trigger) and [/scan/review](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/scan/review) endpoints instead.
      */
     scan(params, options) {
         const { zone_id, body } = params;
         return this._client.post(`/zones/${zone_id}/dns_records/scan`, { body: body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves the list of DNS records discovered up to this point by the
+     * asynchronous scan. These records are temporary until explicitly accepted or
+     * rejected via `POST /scan/review`. Additional records may be discovered by the
+     * scan later.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const recordResponse of client.dns.records.scanList(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    scanList(params, options) {
+        const { zone_id } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/dns_records/scan/review`, RecordResponsesSinglePage, options);
+    }
+    /**
+     * Accept or reject DNS records found by the DNS records scan. Accepted records
+     * will be permanently added to the zone, while rejected records will be
+     * permanently deleted.
+     *
+     * @example
+     * ```ts
+     * const response = await client.dns.records.scanReview({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    scanReview(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/dns_records/scan/review`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Initiates an asynchronous scan for common DNS records on your domain. Note that
+     * this **does not** automatically add records to your zone. The scan runs in the
+     * background, and results can be reviewed later using the `/scan/review`
+     * endpoints. Useful if you haven't updated your nameservers yet.
+     *
+     * @example
+     * ```ts
+     * const response = await client.dns.records.scanTrigger({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    scanTrigger(params, options) {
+        const { zone_id } = params;
+        return this._client.post(`/zones/${zone_id}/dns_records/scan/trigger`, options);
     }
 }
 exports.Records = Records;
 class RecordResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
 exports.RecordResponsesV4PagePaginationArray = RecordResponsesV4PagePaginationArray;
+class RecordResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.RecordResponsesSinglePage = RecordResponsesSinglePage;
 Records.RecordResponsesV4PagePaginationArray = RecordResponsesV4PagePaginationArray;
+Records.RecordResponsesSinglePage = RecordResponsesSinglePage;
 //# sourceMappingURL=records.js.map
 
 /***/ }),
@@ -47469,7 +47520,6 @@ class DNS extends resource_1.APIResource {
      * ```ts
      * const settings = await client.emailRouting.dns.create({
      *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   name: 'example.net',
      * });
      * ```
      */
@@ -47505,7 +47555,6 @@ class DNS extends resource_1.APIResource {
      * ```ts
      * const settings = await client.emailRouting.dns.edit({
      *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   name: 'example.net',
      * });
      * ```
      */
@@ -51194,7 +51243,9 @@ exports.Stats = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Stats extends resource_1.APIResource {
     /**
-     * Fetch usage statistics details for Cloudflare Images.
+     * Fetch image statistics details for Cloudflare Images. The returned statistics
+     * detail storage usage, including the current image count vs this account's
+     * allowance.
      *
      * @example
      * ```ts
@@ -52242,21 +52293,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Downloads = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Downloads extends resource_1.APIResource {
-    /**
-     * Download indicator feed data
-     *
-     * @example
-     * ```ts
-     * const download =
-     *   await client.intel.indicatorFeeds.downloads.get(12, {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   });
-     * ```
-     */
-    get(feedId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/intel/indicator_feeds/${feedId}/download`, options)._thenUnwrap((obj) => obj.result);
-    }
 }
 exports.Downloads = Downloads;
 //# sourceMappingURL=downloads.js.map
@@ -53619,6 +53655,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LoadBalancersSinglePage = exports.LoadBalancers = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const MonitorGroupsAPI = __importStar(__nccwpck_require__(81726));
+const monitor_groups_1 = __nccwpck_require__(81726);
 const PreviewsAPI = __importStar(__nccwpck_require__(90858));
 const previews_1 = __nccwpck_require__(90858);
 const RegionsAPI = __importStar(__nccwpck_require__(85978));
@@ -53634,6 +53672,7 @@ class LoadBalancers extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.monitors = new MonitorsAPI.Monitors(this._client);
+        this.monitorGroups = new MonitorGroupsAPI.MonitorGroups(this._client);
         this.pools = new PoolsAPI.Pools(this._client);
         this.previews = new PreviewsAPI.Previews(this._client);
         this.regions = new RegionsAPI.Regions(this._client);
@@ -53760,6 +53799,8 @@ exports.LoadBalancersSinglePage = LoadBalancersSinglePage;
 LoadBalancers.LoadBalancersSinglePage = LoadBalancersSinglePage;
 LoadBalancers.Monitors = monitors_1.Monitors;
 LoadBalancers.MonitorsSinglePage = monitors_1.MonitorsSinglePage;
+LoadBalancers.MonitorGroups = monitor_groups_1.MonitorGroups;
+LoadBalancers.MonitorGroupsSinglePage = monitor_groups_1.MonitorGroupsSinglePage;
 LoadBalancers.Pools = pools_1.Pools;
 LoadBalancers.PoolsSinglePage = pools_1.PoolsSinglePage;
 LoadBalancers.Previews = previews_1.Previews;
@@ -53767,6 +53808,166 @@ LoadBalancers.Regions = regions_1.Regions;
 LoadBalancers.Searches = searches_1.Searches;
 LoadBalancers.SearchListResponsesV4PagePagination = searches_1.SearchListResponsesV4PagePagination;
 //# sourceMappingURL=load-balancers.js.map
+
+/***/ }),
+
+/***/ 81726:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MonitorGroupsSinglePage = exports.MonitorGroups = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class MonitorGroups extends resource_1.APIResource {
+    /**
+     * Create a new monitor group.
+     *
+     * @example
+     * ```ts
+     * const monitorGroup =
+     *   await client.loadBalancers.monitorGroups.create({
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     id: 'id',
+     *     description: 'Primary datacenter monitors',
+     *     members: [
+     *       {
+     *         enabled: true,
+     *         monitor_id: 'monitor_id',
+     *         monitoring_only: false,
+     *         must_be_healthy: true,
+     *       },
+     *     ],
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/load_balancers/monitor_groups`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Modify a configured monitor group.
+     *
+     * @example
+     * ```ts
+     * const monitorGroup =
+     *   await client.loadBalancers.monitorGroups.update(
+     *     '17b5962d775c646f3f9725cbc7a53df4',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       id: 'id',
+     *       description: 'Primary datacenter monitors',
+     *       members: [
+     *         {
+     *           enabled: true,
+     *           monitor_id: 'monitor_id',
+     *           monitoring_only: false,
+     *           must_be_healthy: true,
+     *         },
+     *       ],
+     *     },
+     *   );
+     * ```
+     */
+    update(monitorGroupId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/load_balancers/monitor_groups/${monitorGroupId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List configured monitor groups.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const monitorGroup of client.loadBalancers.monitorGroups.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/load_balancers/monitor_groups`, MonitorGroupsSinglePage, options);
+    }
+    /**
+     * Delete a configured monitor group.
+     *
+     * @example
+     * ```ts
+     * const monitorGroup =
+     *   await client.loadBalancers.monitorGroups.delete(
+     *     '17b5962d775c646f3f9725cbc7a53df4',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(monitorGroupId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/load_balancers/monitor_groups/${monitorGroupId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Apply changes to an existing monitor group, overwriting the supplied properties.
+     *
+     * @example
+     * ```ts
+     * const monitorGroup =
+     *   await client.loadBalancers.monitorGroups.edit(
+     *     '17b5962d775c646f3f9725cbc7a53df4',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       id: 'id',
+     *       description: 'Primary datacenter monitors',
+     *       members: [
+     *         {
+     *           enabled: true,
+     *           monitor_id: 'monitor_id',
+     *           monitoring_only: false,
+     *           must_be_healthy: true,
+     *         },
+     *       ],
+     *     },
+     *   );
+     * ```
+     */
+    edit(monitorGroupId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/load_balancers/monitor_groups/${monitorGroupId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Fetch a single configured monitor group.
+     *
+     * @example
+     * ```ts
+     * const monitorGroup =
+     *   await client.loadBalancers.monitorGroups.get(
+     *     '17b5962d775c646f3f9725cbc7a53df4',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(monitorGroupId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/load_balancers/monitor_groups/${monitorGroupId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.MonitorGroups = MonitorGroups;
+class MonitorGroupsSinglePage extends pagination_1.SinglePage {
+}
+exports.MonitorGroupsSinglePage = MonitorGroupsSinglePage;
+MonitorGroups.MonitorGroupsSinglePage = MonitorGroupsSinglePage;
+//# sourceMappingURL=monitor-groups.js.map
 
 /***/ }),
 
@@ -57753,7 +57954,7 @@ class PCAPs extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/pcaps/${pcapId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Stop full PCAP
+     * Stop full PCAP.
      *
      * @example
      * ```ts
@@ -59659,8 +59860,16 @@ class PageRules extends resource_1.APIResource {
      * ```ts
      * const pageRule = await client.pageRules.create({
      *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   actions: [{}],
-     *   targets: [{}],
+     *   actions: [{ id: 'browser_check' }],
+     *   targets: [
+     *     {
+     *       constraint: {
+     *         operator: 'matches',
+     *         value: '*example.com/images/*',
+     *       },
+     *       target: 'url',
+     *     },
+     *   ],
      * });
      * ```
      */
@@ -59678,8 +59887,16 @@ class PageRules extends resource_1.APIResource {
      *   '023e105f4ecef8ad9ca31a8372d0c353',
      *   {
      *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     actions: [{}],
-     *     targets: [{}],
+     *     actions: [{ id: 'browser_check' }],
+     *     targets: [
+     *       {
+     *         constraint: {
+     *           operator: 'matches',
+     *           value: '*example.com/images/*',
+     *         },
+     *         target: 'url',
+     *       },
+     *     ],
      *   },
      * );
      * ```
@@ -65557,6 +65774,12 @@ class ASNs extends resource_1.APIResource {
         }
         return this._client.get('/radar/entities/asns', { query, ...options })._thenUnwrap((obj) => obj.result);
     }
+    asSet(asn, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.asSet(asn, {}, query);
+        }
+        return this._client.get(`/radar/entities/asns/${asn}/as_set`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
     get(asn, query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.get(asn, {}, query);
@@ -67862,8 +68085,11 @@ class Recipients extends resource_1.APIResource {
      * ```
      */
     get(shareId, recipientId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/shares/${shareId}/recipients/${recipientId}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/shares/${shareId}/recipients/${recipientId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Recipients = Recipients;
@@ -68009,8 +68235,11 @@ class ResourceSharing extends resource_1.APIResource {
      * ```
      */
     get(shareId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/shares/${shareId}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/shares/${shareId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ResourceSharing = ResourceSharing;
@@ -68203,6 +68432,9 @@ class Items extends resource_1.APIResource {
      * This operation is asynchronous. To get current the operation status, invoke the
      * `Get bulk operation status` endpoint with the returned `operation_id`.
      *
+     * There is a limit of 1 pending bulk operation per account. If an outstanding bulk
+     * operation is in progress, the request will be rejected.
+     *
      * @example
      * ```ts
      * const item = await client.rules.lists.items.create(
@@ -68227,6 +68459,9 @@ class Items extends resource_1.APIResource {
      *
      * This operation is asynchronous. To get current the operation status, invoke the
      * `Get bulk operation status` endpoint with the returned `operation_id`.
+     *
+     * There is a limit of 1 pending bulk operation per account. If an outstanding bulk
+     * operation is in progress, the request will be rejected.
      *
      * @example
      * ```ts
@@ -68269,6 +68504,9 @@ class Items extends resource_1.APIResource {
      *
      * This operation is asynchronous. To get current the operation status, invoke the
      * `Get bulk operation status` endpoint with the returned `operation_id`.
+     *
+     * There is a limit of 1 pending bulk operation per account. If an outstanding bulk
+     * operation is in progress, the request will be rejected.
      *
      * @example
      * ```ts
@@ -72175,7 +72413,8 @@ exports.Downloads = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Downloads extends resource_1.APIResource {
     /**
-     * Creates a download for a video when a video is ready to view.
+     * Creates a download for a video when a video is ready to view. Use
+     * `/downloads/{download_type}` instead for type-specific downloads.
      *
      * @example
      * ```ts
@@ -72196,7 +72435,8 @@ class Downloads extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Delete the downloads for a video.
+     * Delete the downloads for a video. Use `/downloads/{download_type}` instead for
+     * type-specific downloads.
      *
      * @example
      * ```ts
@@ -76130,8 +76370,8 @@ class Secrets extends resource_1.APIResource {
      * ```
      */
     delete(dispatchNamespace, scriptName, secretName, params, options) {
-        const { account_id } = params;
-        return this._client.delete(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}/secrets/${secretName}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, url_encoded } = params;
+        return this._client.delete(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}/secrets/${secretName}`, { query: { url_encoded }, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Get a given secret binding (value omitted) on a script uploaded to a Workers for
@@ -76149,8 +76389,8 @@ class Secrets extends resource_1.APIResource {
      * ```
      */
     get(dispatchNamespace, scriptName, secretName, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}/secrets/${secretName}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}/secrets/${secretName}`, { query, ...options })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Secrets = Secrets;
@@ -76258,7 +76498,7 @@ class Tags extends resource_1.APIResource {
      *   'this-is_my_script-01',
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: ['my-tag'],
+     *     body: ['my-team', 'my-public-api'],
      *   },
      * )) {
      *   // ...
@@ -76584,14 +76824,15 @@ class Versions extends resource_1.APIResource {
      * ```ts
      * const version =
      *   await client.workers.beta.workers.versions.create(
-     *     '023e105f4ecef8ad9ca31a8372d0c353',
+     *     'worker_id',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
     create(workerId, params, options) {
-        const { account_id, ...body } = params;
+        const { account_id, deploy, ...body } = params;
         return this._client.post(`/accounts/${account_id}/workers/workers/${workerId}/versions`, {
+            query: { deploy },
             body,
             ...options,
         })._thenUnwrap((obj) => obj.result);
@@ -76603,7 +76844,7 @@ class Versions extends resource_1.APIResource {
      * ```ts
      * // Automatically fetches more pages as needed.
      * for await (const version of client.workers.beta.workers.versions.list(
-     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   'worker_id',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * )) {
      *   // ...
@@ -76621,8 +76862,8 @@ class Versions extends resource_1.APIResource {
      * ```ts
      * const version =
      *   await client.workers.beta.workers.versions.delete(
-     *     '023e105f4ecef8ad9ca31a8372d0c353',
-     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'worker_id',
+     *     'version_id',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -76638,8 +76879,8 @@ class Versions extends resource_1.APIResource {
      * ```ts
      * const version =
      *   await client.workers.beta.workers.versions.get(
-     *     '023e105f4ecef8ad9ca31a8372d0c353',
-     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'worker_id',
+     *     'version_id',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -76717,12 +76958,15 @@ class Workers extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/workers/workers`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update an existing Worker.
+     * Perform a complete replacement of a Worker, where omitted properties are set to
+     * their default values. This is the exact same as the Create Worker endpoint, but
+     * operates on an existing Worker. To perform a partial update instead, use the
+     * Edit Worker endpoint.
      *
      * @example
      * ```ts
      * const worker = await client.workers.beta.workers.update(
-     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   'worker_id',
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     name: 'my-worker',
@@ -76763,7 +77007,7 @@ class Workers extends resource_1.APIResource {
      * @example
      * ```ts
      * const worker = await client.workers.beta.workers.delete(
-     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   'worker_id',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
@@ -76773,12 +77017,40 @@ class Workers extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/workers/workers/${workerId}`, options);
     }
     /**
+     * Perform a partial update on a Worker, where omitted properties are left
+     * unchanged from their current values.
+     *
+     * @example
+     * ```ts
+     * const worker = await client.workers.beta.workers.edit(
+     *   'worker_id',
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     logpush: true,
+     *     name: 'my-worker',
+     *     observability: {},
+     *     subdomain: {},
+     *     tags: ['my-team', 'my-public-api'],
+     *     tail_consumers: [{ name: 'my-tail-consumer' }],
+     *   },
+     * );
+     * ```
+     */
+    edit(workerId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/workers/workers/${workerId}`, {
+            body,
+            ...options,
+            headers: { 'Content-Type': 'application/merge-patch+json', ...options?.headers },
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
      * Get details about a specific Worker.
      *
      * @example
      * ```ts
      * const worker = await client.workers.beta.workers.get(
-     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   'worker_id',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
@@ -77681,6 +77953,23 @@ class Scripts extends resource_1.APIResource {
             headers: { Accept: 'application/javascript', ...options?.headers },
         });
     }
+    /**
+     * Search for Workers in an account.
+     *
+     * @example
+     * ```ts
+     * const response = await client.workers.scripts.search({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    search(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/workers/scripts-search`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
 }
 exports.Scripts = Scripts;
 class ScriptsSinglePage extends pagination_1.SinglePage {
@@ -77768,8 +78057,11 @@ class Secrets extends resource_1.APIResource {
      * ```
      */
     delete(scriptName, secretName, params, options) {
-        const { account_id } = params;
-        return this._client.delete(`/accounts/${account_id}/workers/scripts/${scriptName}/secrets/${secretName}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, url_encoded } = params;
+        return this._client.delete(`/accounts/${account_id}/workers/scripts/${scriptName}/secrets/${secretName}`, {
+            query: { url_encoded },
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Get a given secret binding (value omitted) on a script.
@@ -77784,8 +78076,11 @@ class Secrets extends resource_1.APIResource {
      * ```
      */
     get(scriptName, secretName, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/workers/scripts/${scriptName}/secrets/${secretName}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/workers/scripts/${scriptName}/secrets/${secretName}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Secrets = Secrets;
@@ -81188,8 +81483,11 @@ class ServiceTokens extends resource_1.APIResource {
      * ```
      */
     rotate(serviceTokenId, params, options) {
-        const { account_id } = params;
-        return this._client.post(`/accounts/${account_id}/access/service_tokens/${serviceTokenId}/rotate`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/access/service_tokens/${serviceTokenId}/rotate`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ServiceTokens = ServiceTokens;
@@ -81753,8 +82051,11 @@ class Devices extends resource_1.APIResource {
      * ```
      */
     get(deviceId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/devices/physical-devices/${deviceId}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/devices/physical-devices/${deviceId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Revokes all WARP registrations associated with the specified device.
@@ -83134,8 +83435,11 @@ class Registrations extends resource_1.APIResource {
      * ```
      */
     get(registrationId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/devices/registrations/${registrationId}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/devices/registrations/${registrationId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Revokes a list of WARP registrations.
@@ -85825,7 +86129,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class AppTypes extends resource_1.APIResource {
     /**
-     * Fetches all application and application type mappings.
+     * List all application and application type mappings.
      *
      * @example
      * ```ts
@@ -85862,7 +86166,7 @@ exports.AuditSSHSettings = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class AuditSSHSettings extends resource_1.APIResource {
     /**
-     * Updates Zero Trust Audit SSH and SSH with Access for Infrastructure settings for
+     * Update Zero Trust Audit SSH and SSH with Access for Infrastructure settings for
      * an account.
      *
      * @example
@@ -85883,8 +86187,8 @@ class AuditSSHSettings extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Gets all Zero Trust Audit SSH and SSH with Access for Infrastructure settings
-     * for an account.
+     * Retrieve all Zero Trust Audit SSH and SSH with Access for Infrastructure
+     * settings for an account.
      *
      * @example
      * ```ts
@@ -85899,8 +86203,8 @@ class AuditSSHSettings extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/gateway/audit_ssh_settings`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Rotates the SSH account seed that is used for generating the host key identity
-     * when connecting through the Cloudflare SSH Proxy.
+     * Rotate the SSH account seed that generates the host key identity when connecting
+     * through the Cloudflare SSH Proxy.
      *
      * @example
      * ```ts
@@ -85932,7 +86236,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Categories extends resource_1.APIResource {
     /**
-     * Fetches a list of all categories.
+     * List all categories.
      *
      * @example
      * ```ts
@@ -85970,7 +86274,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Certificates extends resource_1.APIResource {
     /**
-     * Creates a new Zero Trust certificate.
+     * Create a new Zero Trust certificate.
      *
      * @example
      * ```ts
@@ -85988,7 +86292,7 @@ class Certificates extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches all Zero Trust certificates for an account.
+     * List all Zero Trust certificates for an account.
      *
      * @example
      * ```ts
@@ -86005,8 +86309,8 @@ class Certificates extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/gateway/certificates`, CertificateListResponsesSinglePage, options);
     }
     /**
-     * Deletes a gateway-managed Zero Trust certificate. A certificate must be
-     * deactivated from the edge (inactive) before it is deleted.
+     * Delete a gateway-managed Zero Trust certificate. You must deactivate the
+     * certificate from the edge (inactive) before deleting it.
      *
      * @example
      * ```ts
@@ -86022,7 +86326,7 @@ class Certificates extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/gateway/certificates/${certificateId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Binds a single Zero Trust certificate to the edge.
+     * Bind a single Zero Trust certificate to the edge.
      *
      * @example
      * ```ts
@@ -86044,7 +86348,7 @@ class Certificates extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Unbinds a single Zero Trust certificate from the edge.
+     * Unbind a single Zero Trust certificate from the edge.
      *
      * @example
      * ```ts
@@ -86066,7 +86370,7 @@ class Certificates extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a single Zero Trust certificate.
+     * Get a single Zero Trust certificate.
      *
      * @example
      * ```ts
@@ -86131,7 +86435,7 @@ class Configurations extends resource_1.APIResource {
         this.customCertificate = new CustomCertificateAPI.CustomCertificate(this._client);
     }
     /**
-     * Updates the current Zero Trust account configuration.
+     * Update the current Zero Trust account configuration.
      *
      * @example
      * ```ts
@@ -86149,11 +86453,11 @@ class Configurations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Patches the current Zero Trust account configuration. This endpoint can update a
-     * single subcollection of settings such as `antivirus`, `tls_decrypt`,
-     * `activity_log`, `block_page`, `browser_isolation`, `fips`, `body_scanning`, or
-     * `certificate`, without updating the entire configuration object. Returns an
-     * error if any collection of settings is not properly configured.
+     * Update (PATCH) a single subcollection of settings such as `antivirus`,
+     * `tls_decrypt`, `activity_log`, `block_page`, `browser_isolation`, `fips`,
+     * `body_scanning`, or `certificate` without updating the entire configuration
+     * object. This endpoint returns an error if any settings collection lacks proper
+     * configuration.
      *
      * @example
      * ```ts
@@ -86171,7 +86475,7 @@ class Configurations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches the current Zero Trust account configuration.
+     * Retrieve the current Zero Trust account configuration.
      *
      * @example
      * ```ts
@@ -86203,7 +86507,7 @@ exports.CustomCertificate = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class CustomCertificate extends resource_1.APIResource {
     /**
-     * Fetches the current Zero Trust certificate configuration.
+     * Retrieve the current Zero Trust certificate configuration.
      *
      * @deprecated
      */
@@ -86284,7 +86588,7 @@ class Gateway extends resource_1.APIResource {
         this.certificates = new CertificatesAPI.Certificates(this._client);
     }
     /**
-     * Creates a Zero Trust account with an existing Cloudflare account.
+     * Create a Zero Trust account for an existing Cloudflare account.
      *
      * @example
      * ```ts
@@ -86298,7 +86602,7 @@ class Gateway extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/gateway`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Gets information about the current Zero Trust account.
+     * Retrieve information about the current Zero Trust account.
      *
      * @example
      * ```ts
@@ -86346,7 +86650,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Items extends resource_1.APIResource {
     /**
-     * Fetches all items in a single Zero Trust list.
+     * Fetch all items in a single Zero Trust list.
      *
      * @example
      * ```ts
@@ -86431,7 +86735,7 @@ class Lists extends resource_1.APIResource {
     }
     /**
      * Updates a configured Zero Trust list. Skips updating list items if not included
-     * in the payload.
+     * in the payload. A non empty list items will overwrite the existing list.
      *
      * @example
      * ```ts
@@ -86453,7 +86757,7 @@ class Lists extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches all Zero Trust lists for an account.
+     * Fetch all Zero Trust lists for an account.
      *
      * @example
      * ```ts
@@ -86507,7 +86811,7 @@ class Lists extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a single Zero Trust list.
+     * Fetch a single Zero Trust list.
      *
      * @example
      * ```ts
@@ -86546,7 +86850,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Locations extends resource_1.APIResource {
     /**
-     * Creates a new Zero Trust Gateway location.
+     * Create a new Zero Trust Gateway location.
      *
      * @example
      * ```ts
@@ -86565,7 +86869,7 @@ class Locations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Updates a configured Zero Trust Gateway location.
+     * Update a configured Zero Trust Gateway location.
      *
      * @example
      * ```ts
@@ -86587,7 +86891,7 @@ class Locations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches Zero Trust Gateway locations for an account.
+     * List Zero Trust Gateway locations for an account.
      *
      * @example
      * ```ts
@@ -86604,7 +86908,7 @@ class Locations extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/gateway/locations`, LocationsSinglePage, options);
     }
     /**
-     * Deletes a configured Zero Trust Gateway location.
+     * Delete a configured Zero Trust Gateway location.
      *
      * @example
      * ```ts
@@ -86620,7 +86924,7 @@ class Locations extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/gateway/locations/${locationId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a single Zero Trust Gateway location.
+     * Get a single Zero Trust Gateway location.
      *
      * @example
      * ```ts
@@ -86656,7 +86960,7 @@ exports.Logging = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Logging extends resource_1.APIResource {
     /**
-     * Updates logging settings for the current Zero Trust account.
+     * Update logging settings for the current Zero Trust account.
      *
      * @example
      * ```ts
@@ -86671,7 +86975,7 @@ class Logging extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/gateway/logging`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches the current logging settings for Zero Trust account.
+     * Retrieve the current logging settings for the Zero Trust account.
      *
      * @example
      * ```ts
@@ -86703,7 +87007,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class ProxyEndpoints extends resource_1.APIResource {
     /**
-     * Creates a new Zero Trust Gateway proxy endpoint.
+     * Create a new Zero Trust Gateway proxy endpoint.
      *
      * @example
      * ```ts
@@ -86723,7 +87027,7 @@ class ProxyEndpoints extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches all Zero Trust Gateway proxy endpoints for an account.
+     * List all Zero Trust Gateway proxy endpoints for an account.
      *
      * @example
      * ```ts
@@ -86738,7 +87042,7 @@ class ProxyEndpoints extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/gateway/proxy_endpoints`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Deletes a configured Zero Trust Gateway proxy endpoint.
+     * Delete a configured Zero Trust Gateway proxy endpoint.
      *
      * @example
      * ```ts
@@ -86754,7 +87058,7 @@ class ProxyEndpoints extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/gateway/proxy_endpoints/${proxyEndpointId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Updates a configured Zero Trust Gateway proxy endpoint.
+     * Update a configured Zero Trust Gateway proxy endpoint.
      *
      * @example
      * ```ts
@@ -86773,7 +87077,7 @@ class ProxyEndpoints extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a single Zero Trust Gateway proxy endpoint.
+     * Get a single Zero Trust Gateway proxy endpoint.
      *
      * @example
      * ```ts
@@ -86812,7 +87116,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Rules extends resource_1.APIResource {
     /**
-     * Creates a new Zero Trust Gateway rule.
+     * Create a new Zero Trust Gateway rule.
      *
      * @example
      * ```ts
@@ -86829,7 +87133,7 @@ class Rules extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/gateway/rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Updates a configured Zero Trust Gateway rule.
+     * Update a configured Zero Trust Gateway rule.
      *
      * @example
      * ```ts
@@ -86852,7 +87156,7 @@ class Rules extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches the Zero Trust Gateway rules for an account.
+     * List Zero Trust Gateway rules for an account.
      *
      * @example
      * ```ts
@@ -86869,7 +87173,7 @@ class Rules extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/gateway/rules`, GatewayRulesSinglePage, options);
     }
     /**
-     * Deletes a Zero Trust Gateway rule.
+     * Delete a Zero Trust Gateway rule.
      *
      * @example
      * ```ts
@@ -86884,7 +87188,7 @@ class Rules extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/gateway/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a single Zero Trust Gateway rule.
+     * Get a single Zero Trust Gateway rule.
      *
      * @example
      * ```ts
@@ -86900,11 +87204,9 @@ class Rules extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/gateway/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Resets the expiration of a Zero Trust Gateway Rule if its duration has elapsed
-     * and it has a default duration.
-     *
-     * The Zero Trust Gateway Rule must have values for both `expiration.expires_at`
-     * and `expiration.duration`.
+     * Resets the expiration of a Zero Trust Gateway Rule if its duration elapsed and
+     * it has a default duration. The Zero Trust Gateway Rule must have values for both
+     * `expiration.expires_at` and `expiration.duration`.
      *
      * @example
      * ```ts
@@ -87245,6 +87547,113 @@ exports.Users = Users;
 
 /***/ }),
 
+/***/ 63816:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.HostnameRoutesV4PagePaginationArray = exports.HostnameRoutes = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class HostnameRoutes extends resource_1.APIResource {
+    /**
+     * Create a hostname route.
+     *
+     * @example
+     * ```ts
+     * const hostnameRoute =
+     *   await client.zeroTrust.networks.hostnameRoutes.create({
+     *     account_id: '699d98642c564d2e855e9661899b7252',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/zerotrust/routes/hostname`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists and filters hostname routes in an account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const hostnameRoute of client.zeroTrust.networks.hostnameRoutes.list(
+     *   { account_id: '699d98642c564d2e855e9661899b7252' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/zerotrust/routes/hostname`, HostnameRoutesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete a hostname route.
+     *
+     * @example
+     * ```ts
+     * const hostnameRoute =
+     *   await client.zeroTrust.networks.hostnameRoutes.delete(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    delete(hostnameRouteId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/zerotrust/routes/hostname/${hostnameRouteId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a hostname route.
+     *
+     * @example
+     * ```ts
+     * const hostnameRoute =
+     *   await client.zeroTrust.networks.hostnameRoutes.edit(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    edit(hostnameRouteId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/zerotrust/routes/hostname/${hostnameRouteId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get a hostname route.
+     *
+     * @example
+     * ```ts
+     * const hostnameRoute =
+     *   await client.zeroTrust.networks.hostnameRoutes.get(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    get(hostnameRouteId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/zerotrust/routes/hostname/${hostnameRouteId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.HostnameRoutes = HostnameRoutes;
+class HostnameRoutesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.HostnameRoutesV4PagePaginationArray = HostnameRoutesV4PagePaginationArray;
+HostnameRoutes.HostnameRoutesV4PagePaginationArray = HostnameRoutesV4PagePaginationArray;
+//# sourceMappingURL=hostname-routes.js.map
+
+/***/ }),
+
 /***/ 72351:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -87277,6 +87686,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Networks = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const HostnameRoutesAPI = __importStar(__nccwpck_require__(63816));
+const hostname_routes_1 = __nccwpck_require__(63816);
 const VirtualNetworksAPI = __importStar(__nccwpck_require__(38577));
 const virtual_networks_1 = __nccwpck_require__(38577);
 const RoutesAPI = __importStar(__nccwpck_require__(66735));
@@ -87289,6 +87700,7 @@ class Networks extends resource_1.APIResource {
         this.routes = new RoutesAPI.Routes(this._client);
         this.virtualNetworks = new VirtualNetworksAPI.VirtualNetworks(this._client);
         this.subnets = new SubnetsAPI.Subnets(this._client);
+        this.hostnameRoutes = new HostnameRoutesAPI.HostnameRoutes(this._client);
     }
 }
 exports.Networks = Networks;
@@ -87298,6 +87710,8 @@ Networks.VirtualNetworks = virtual_networks_1.VirtualNetworks;
 Networks.VirtualNetworksSinglePage = virtual_networks_1.VirtualNetworksSinglePage;
 Networks.Subnets = subnets_1.Subnets;
 Networks.SubnetListResponsesV4PagePaginationArray = subnets_1.SubnetListResponsesV4PagePaginationArray;
+Networks.HostnameRoutes = hostname_routes_1.HostnameRoutes;
+Networks.HostnameRoutesV4PagePaginationArray = hostname_routes_1.HostnameRoutesV4PagePaginationArray;
 //# sourceMappingURL=networks.js.map
 
 /***/ }),
@@ -89787,7 +90201,7 @@ const addFormValueJson = async (form, key, value) => {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.VERSION = void 0;
-exports.VERSION = '5.1.0'; // x-release-please-version
+exports.VERSION = '5.2.0'; // x-release-please-version
 //# sourceMappingURL=version.js.map
 
 /***/ }),
