@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          current=$(node -pe "const pkg=require('./package.json'); process.stdout.write((pkg.dependencies && pkg.dependencies.cloudflare) || '')")
+          current=$(node -e "const pkg=require('./package.json'); process.stdout.write((pkg.dependencies && pkg.dependencies.cloudflare) || '')")
           current=${current#^}
           current=${current#~}
           current=${current#=}
