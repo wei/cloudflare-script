@@ -33696,6 +33696,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.isObj = exports.toBase64 = exports.getHeader = exports.getRequiredHeader = exports.isHeadersProtocol = exports.isRunningInBrowser = exports.debug = exports.hasOwn = exports.isEmptyObj = exports.maybeCoerceBoolean = exports.maybeCoerceFloat = exports.maybeCoerceInteger = exports.coerceBoolean = exports.coerceFloat = exports.coerceInteger = exports.readEnv = exports.ensurePresent = exports.castToError = exports.sleep = exports.safeJSON = exports.isRequestOptions = exports.createResponseHeaders = exports.PagePromise = exports.AbstractPage = exports.APIClient = exports.APIPromise = exports.createForm = exports.multipartFormRequestOptions = exports.maybeMultipartFormRequestOptions = void 0;
 const version_1 = __nccwpck_require__(81438);
 const error_1 = __nccwpck_require__(47952);
+const query_1 = __nccwpck_require__(62904);
 const index_1 = __nccwpck_require__(89878);
 // try running side effects outside of _shims/index to workaround https://github.com/vercel/next.js/issues/76881
 (0, index_1.init)();
@@ -33717,6 +33718,11 @@ async function defaultParseResponse(props) {
     const mediaType = contentType?.split(';')[0]?.trim();
     const isJSON = mediaType?.includes('application/json') || mediaType?.endsWith('+json');
     if (isJSON) {
+        const contentLength = response.headers.get('content-length');
+        if (contentLength === '0') {
+            // if there is no content we can't do anything
+            return undefined;
+        }
         const json = await response.json();
         debug('response', response.status, response.url, response.headers, json);
         return json;
@@ -34024,8 +34030,9 @@ class APIClient {
             new URL(path)
             : new URL(baseURL + (baseURL.endsWith('/') && path.startsWith('/') ? path.slice(1) : path));
         const defaultQuery = this.defaultQuery();
-        if (!isEmptyObj(defaultQuery)) {
-            query = { ...defaultQuery, ...query };
+        const pathQuery = Object.fromEntries(url.searchParams);
+        if (!isEmptyObj(defaultQuery) || !isEmptyObj(pathQuery)) {
+            query = { ...pathQuery, ...defaultQuery, ...query };
         }
         if (typeof query === 'object' && query && !Array.isArray(query)) {
             url.search = this.stringifyQuery(query);
@@ -34033,18 +34040,7 @@ class APIClient {
         return url.toString();
     }
     stringifyQuery(query) {
-        return Object.entries(query)
-            .filter(([_, value]) => typeof value !== 'undefined')
-            .map(([key, value]) => {
-            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-                return `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-            }
-            if (value === null) {
-                return `${encodeURIComponent(key)}=`;
-            }
-            throw new error_1.CloudflareError(`Cannot stringify type ${typeof value}; Expected string, number, boolean, or null. If you need to pass nested query parameters, you can manually encode them, e.g. { query: { 'foo[key1]': value1, 'foo[key2]': value2 } }, and please open a GitHub issue requesting better support for your use case.`);
-        })
-            .join('&');
+        return (0, query_1.stringifyQuery)(query);
     }
     async fetchWithTimeout(url, init, ms, controller) {
         const { signal, ...options } = init || {};
@@ -34109,9 +34105,9 @@ class APIClient {
                 timeoutMillis = Date.parse(retryAfterHeader) - Date.now();
             }
         }
-        // If the API asks us to wait a certain amount of time (and it's a reasonable amount),
-        // just do what it says, but otherwise calculate a default
-        if (!(timeoutMillis && 0 <= timeoutMillis && timeoutMillis < 60 * 1000)) {
+        // If the API asks us to wait a certain amount of time, do what it says.
+        // Otherwise calculate a default.
+        if (timeoutMillis === undefined) {
             const maxRetries = options.maxRetries ?? this.maxRetries;
             timeoutMillis = this.calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries);
         }
@@ -34435,10 +34431,10 @@ exports.ensurePresent = ensurePresent;
  */
 const readEnv = (env) => {
     if (typeof process !== 'undefined') {
-        return process.env?.[env]?.trim() ?? undefined;
+        return process.env?.[env]?.trim() || undefined;
     }
     if (typeof Deno !== 'undefined') {
-        return Deno.env?.get?.(env)?.trim();
+        return Deno.env?.get?.(env)?.trim() || undefined;
     }
     return undefined;
 };
@@ -34766,65 +34762,61 @@ var __importStar = (this && this.__importStar) || function (mod) {
 var _Cloudflare_instances, _a, _Cloudflare_baseURLOverridden;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UnprocessableEntityError = exports.PermissionDeniedError = exports.InternalServerError = exports.AuthenticationError = exports.BadRequestError = exports.RateLimitError = exports.ConflictError = exports.NotFoundError = exports.APIUserAbortError = exports.APIConnectionTimeoutError = exports.APIConnectionError = exports.APIError = exports.CloudflareError = exports.fileFromPath = exports.toFile = exports.Cloudflare = void 0;
-const qs = __importStar(__nccwpck_require__(18671));
+const query_1 = __nccwpck_require__(62904);
 const Core = __importStar(__nccwpck_require__(75487));
 const Errors = __importStar(__nccwpck_require__(47952));
 const Pagination = __importStar(__nccwpck_require__(30404));
 const Uploads = __importStar(__nccwpck_require__(48684));
 const API = __importStar(__nccwpck_require__(59540));
-const abuse_reports_1 = __nccwpck_require__(47460);
-const audit_logs_1 = __nccwpck_require__(21519);
-const bot_management_1 = __nccwpck_require__(55729);
-const client_certificates_1 = __nccwpck_require__(36186);
-const custom_nameservers_1 = __nccwpck_require__(88457);
-const custom_pages_1 = __nccwpck_require__(37508);
-const dcv_delegation_1 = __nccwpck_require__(53576);
-const filters_1 = __nccwpck_require__(60983);
-const ips_1 = __nccwpck_require__(55026);
-const keyless_certificates_1 = __nccwpck_require__(99759);
-const managed_transforms_1 = __nccwpck_require__(95671);
-const memberships_1 = __nccwpck_require__(12461);
-const origin_ca_certificates_1 = __nccwpck_require__(16406);
-const origin_post_quantum_encryption_1 = __nccwpck_require__(19493);
-const page_rules_1 = __nccwpck_require__(97927);
-const pipelines_1 = __nccwpck_require__(22275);
-const rate_limits_1 = __nccwpck_require__(89553);
-const security_txt_1 = __nccwpck_require__(53325);
-const url_normalization_1 = __nccwpck_require__(605);
+const abuse_reports_1 = __nccwpck_require__(15487);
 const accounts_1 = __nccwpck_require__(22413);
 const acm_1 = __nccwpck_require__(78683);
 const addressing_1 = __nccwpck_require__(11921);
 const ai_gateway_1 = __nccwpck_require__(82571);
 const ai_1 = __nccwpck_require__(61405);
+const aisearch_1 = __nccwpck_require__(10461);
 const alerting_1 = __nccwpck_require__(13361);
 const api_gateway_1 = __nccwpck_require__(47963);
 const argo_1 = __nccwpck_require__(13995);
+const audit_logs_1 = __nccwpck_require__(28779);
 const billing_1 = __nccwpck_require__(49867);
+const bot_management_1 = __nccwpck_require__(49907);
 const botnet_feed_1 = __nccwpck_require__(29563);
 const brand_protection_1 = __nccwpck_require__(24399);
 const browser_rendering_1 = __nccwpck_require__(20783);
 const cache_1 = __nccwpck_require__(64343);
 const calls_1 = __nccwpck_require__(3987);
 const certificate_authorities_1 = __nccwpck_require__(53275);
+const client_certificates_1 = __nccwpck_require__(41671);
 const cloud_connector_1 = __nccwpck_require__(75395);
 const cloudforce_one_1 = __nccwpck_require__(92251);
+const connectivity_1 = __nccwpck_require__(78423);
 const content_scanning_1 = __nccwpck_require__(25343);
 const custom_certificates_1 = __nccwpck_require__(17391);
 const custom_hostnames_1 = __nccwpck_require__(85897);
+const custom_nameservers_1 = __nccwpck_require__(44731);
+const custom_pages_1 = __nccwpck_require__(14905);
 const d1_1 = __nccwpck_require__(95583);
+const dcv_delegation_1 = __nccwpck_require__(60017);
 const diagnostics_1 = __nccwpck_require__(53639);
 const dns_firewall_1 = __nccwpck_require__(53629);
 const dns_1 = __nccwpck_require__(33211);
 const durable_objects_1 = __nccwpck_require__(84947);
 const email_routing_1 = __nccwpck_require__(46651);
 const email_security_1 = __nccwpck_require__(94459);
+const email_sending_1 = __nccwpck_require__(60947);
+const filters_1 = __nccwpck_require__(92843);
 const firewall_1 = __nccwpck_require__(61517);
+const fraud_1 = __nccwpck_require__(93411);
+const google_tag_gateway_1 = __nccwpck_require__(7579);
 const healthchecks_1 = __nccwpck_require__(39951);
 const hostnames_1 = __nccwpck_require__(65552);
 const hyperdrive_1 = __nccwpck_require__(54537);
 const iam_1 = __nccwpck_require__(55851);
 const images_1 = __nccwpck_require__(13837);
 const intel_1 = __nccwpck_require__(15227);
+const ips_1 = __nccwpck_require__(95063);
+const keyless_certificates_1 = __nccwpck_require__(98171);
 const kv_1 = __nccwpck_require__(40795);
 const leaked_credential_checks_1 = __nccwpck_require__(58541);
 const load_balancers_1 = __nccwpck_require__(50861);
@@ -34833,37 +34825,52 @@ const logs_1 = __nccwpck_require__(80827);
 const magic_cloud_networking_1 = __nccwpck_require__(47569);
 const magic_network_monitoring_1 = __nccwpck_require__(59539);
 const magic_transit_1 = __nccwpck_require__(65447);
+const managed_transforms_1 = __nccwpck_require__(23931);
+const memberships_1 = __nccwpck_require__(35899);
 const mtls_certificates_1 = __nccwpck_require__(80907);
 const network_interconnects_1 = __nccwpck_require__(80355);
+const organizations_1 = __nccwpck_require__(94475);
+const origin_ca_certificates_1 = __nccwpck_require__(14977);
+const origin_post_quantum_encryption_1 = __nccwpck_require__(79335);
 const origin_tls_client_auth_1 = __nccwpck_require__(50603);
+const page_rules_1 = __nccwpck_require__(46291);
 const page_shield_1 = __nccwpck_require__(95227);
 const pages_1 = __nccwpck_require__(33147);
+const pipelines_1 = __nccwpck_require__(39595);
 const queues_1 = __nccwpck_require__(85041);
+const r2_data_catalog_1 = __nccwpck_require__(73319);
 const r2_1 = __nccwpck_require__(69689);
 const radar_1 = __nccwpck_require__(55819);
+const rate_limits_1 = __nccwpck_require__(57307);
+const realtime_kit_1 = __nccwpck_require__(38073);
 const registrar_1 = __nccwpck_require__(36611);
 const request_tracers_1 = __nccwpck_require__(2311);
 const resource_sharing_1 = __nccwpck_require__(21771);
-const rules_1 = __nccwpck_require__(57307);
+const resource_tagging_1 = __nccwpck_require__(20977);
+const rules_1 = __nccwpck_require__(79688);
 const rulesets_1 = __nccwpck_require__(82435);
 const rum_1 = __nccwpck_require__(21695);
 const schema_validation_1 = __nccwpck_require__(75087);
 const secrets_store_1 = __nccwpck_require__(57383);
 const security_center_1 = __nccwpck_require__(80059);
+const security_txt_1 = __nccwpck_require__(12755);
 const snippets_1 = __nccwpck_require__(44929);
 const spectrum_1 = __nccwpck_require__(14267);
 const speed_1 = __nccwpck_require__(26795);
 const ssl_1 = __nccwpck_require__(45563);
 const stream_1 = __nccwpck_require__(52445);
+const token_validation_1 = __nccwpck_require__(31103);
 const turnstile_1 = __nccwpck_require__(93459);
+const url_normalization_1 = __nccwpck_require__(70615);
 const url_scanner_1 = __nccwpck_require__(80363);
 const user_1 = __nccwpck_require__(97199);
 const vectorize_1 = __nccwpck_require__(79443);
+const vulnerability_scanner_1 = __nccwpck_require__(5255);
 const waiting_rooms_1 = __nccwpck_require__(60503);
 const web3_1 = __nccwpck_require__(59075);
 const workers_for_platforms_1 = __nccwpck_require__(21667);
 const workers_1 = __nccwpck_require__(98707);
-const workflows_1 = __nccwpck_require__(39595);
+const workflows_1 = __nccwpck_require__(61976);
 const zaraz_1 = __nccwpck_require__(19959);
 const zero_trust_1 = __nccwpck_require__(48683);
 const zones_1 = __nccwpck_require__(62419);
@@ -34908,6 +34915,7 @@ class Cloudflare extends Core.APIClient {
         });
         _Cloudflare_instances.add(this);
         this.accounts = new API.Accounts(this);
+        this.organizations = new API.Organizations(this);
         this.originCACertificates = new API.OriginCACertificates(this);
         this.ips = new API.IPs(this);
         this.memberships = new API.Memberships(this);
@@ -34927,6 +34935,7 @@ class Cloudflare extends Core.APIClient {
         this.dns = new API.DNS(this);
         this.emailSecurity = new API.EmailSecurity(this);
         this.emailRouting = new API.EmailRouting(this);
+        this.emailSending = new API.EmailSending(this);
         this.filters = new API.Filters(this);
         this.firewall = new API.Firewall(this);
         this.healthchecks = new API.Healthchecks(this);
@@ -34968,21 +34977,27 @@ class Cloudflare extends Core.APIClient {
         this.alerting = new API.Alerting(this);
         this.d1 = new API.D1Resource(this);
         this.r2 = new API.R2(this);
+        this.r2DataCatalog = new API.R2DataCatalog(this);
         this.workersForPlatforms = new API.WorkersForPlatforms(this);
         this.zeroTrust = new API.ZeroTrust(this);
         this.turnstile = new API.Turnstile(this);
+        this.connectivity = new API.Connectivity(this);
         this.hyperdrive = new API.HyperdriveResource(this);
         this.rum = new API.RUM(this);
         this.vectorize = new API.Vectorize(this);
         this.urlScanner = new API.URLScanner(this);
+        this.vulnerabilityScanner = new API.VulnerabilityScanner(this);
         this.radar = new API.Radar(this);
         this.botManagement = new API.BotManagement(this);
+        this.fraud = new API.Fraud(this);
         this.originPostQuantumEncryption = new API.OriginPostQuantumEncryption(this);
+        this.googleTagGateway = new API.GoogleTagGateway(this);
         this.zaraz = new API.Zaraz(this);
         this.speed = new API.Speed(this);
         this.dcvDelegation = new API.DCVDelegation(this);
         this.hostnames = new API.Hostnames(this);
         this.snippets = new API.Snippets(this);
+        this.realtimeKit = new API.RealtimeKit(this);
         this.calls = new API.Calls(this);
         this.cloudforceOne = new API.CloudforceOne(this);
         this.aiGateway = new API.AIGateway(this);
@@ -34992,16 +35007,19 @@ class Cloudflare extends Core.APIClient {
         this.securityTXT = new API.SecurityTXT(this);
         this.workflows = new API.Workflows(this);
         this.resourceSharing = new API.ResourceSharing(this);
+        this.resourceTagging = new API.ResourceTagging(this);
         this.leakedCredentialChecks = new API.LeakedCredentialChecks(this);
         this.contentScanning = new API.ContentScanning(this);
         this.abuseReports = new API.AbuseReports(this);
         this.ai = new API.AI(this);
+        this.aiSearch = new API.AISearch(this);
         this.securityCenter = new API.SecurityCenter(this);
         this.browserRendering = new API.BrowserRendering(this);
         this.customPages = new API.CustomPages(this);
         this.secretsStore = new API.SecretsStore(this);
         this.pipelines = new API.Pipelines(this);
         this.schemaValidation = new API.SchemaValidation(this);
+        this.tokenValidation = new API.TokenValidation(this);
         this._options = options;
         this.apiToken = apiToken;
         this.apiKey = apiKey;
@@ -35094,7 +35112,7 @@ class Cloudflare extends Core.APIClient {
         return { 'X-Auth-User-Service-Key': this.userServiceKey };
     }
     stringifyQuery(query) {
-        return qs.stringify(query, { allowDots: true, arrayFormat: 'repeat' });
+        return (0, query_1.stringifyQuery)(query);
     }
 }
 exports.Cloudflare = Cloudflare;
@@ -35119,6 +35137,7 @@ Cloudflare.UnprocessableEntityError = Errors.UnprocessableEntityError;
 Cloudflare.toFile = Uploads.toFile;
 Cloudflare.fileFromPath = Uploads.fileFromPath;
 Cloudflare.Accounts = accounts_1.Accounts;
+Cloudflare.Organizations = organizations_1.Organizations;
 Cloudflare.OriginCACertificates = origin_ca_certificates_1.OriginCACertificates;
 Cloudflare.IPs = ips_1.IPs;
 Cloudflare.Memberships = memberships_1.Memberships;
@@ -35138,6 +35157,7 @@ Cloudflare.DNSFirewall = dns_firewall_1.DNSFirewall;
 Cloudflare.DNS = dns_1.DNS;
 Cloudflare.EmailSecurity = email_security_1.EmailSecurity;
 Cloudflare.EmailRouting = email_routing_1.EmailRouting;
+Cloudflare.EmailSending = email_sending_1.EmailSending;
 Cloudflare.Filters = filters_1.Filters;
 Cloudflare.Firewall = firewall_1.Firewall;
 Cloudflare.Healthchecks = healthchecks_1.Healthchecks;
@@ -35179,21 +35199,27 @@ Cloudflare.Stream = stream_1.Stream;
 Cloudflare.Alerting = alerting_1.Alerting;
 Cloudflare.D1Resource = d1_1.D1Resource;
 Cloudflare.R2 = r2_1.R2;
+Cloudflare.R2DataCatalog = r2_data_catalog_1.R2DataCatalog;
 Cloudflare.WorkersForPlatforms = workers_for_platforms_1.WorkersForPlatforms;
 Cloudflare.ZeroTrust = zero_trust_1.ZeroTrust;
 Cloudflare.Turnstile = turnstile_1.Turnstile;
+Cloudflare.Connectivity = connectivity_1.Connectivity;
 Cloudflare.HyperdriveResource = hyperdrive_1.HyperdriveResource;
 Cloudflare.RUM = rum_1.RUM;
 Cloudflare.Vectorize = vectorize_1.Vectorize;
 Cloudflare.URLScanner = url_scanner_1.URLScanner;
+Cloudflare.VulnerabilityScanner = vulnerability_scanner_1.VulnerabilityScanner;
 Cloudflare.Radar = radar_1.Radar;
 Cloudflare.BotManagement = bot_management_1.BotManagement;
+Cloudflare.Fraud = fraud_1.Fraud;
 Cloudflare.OriginPostQuantumEncryption = origin_post_quantum_encryption_1.OriginPostQuantumEncryption;
+Cloudflare.GoogleTagGateway = google_tag_gateway_1.GoogleTagGateway;
 Cloudflare.Zaraz = zaraz_1.Zaraz;
 Cloudflare.Speed = speed_1.Speed;
 Cloudflare.DCVDelegation = dcv_delegation_1.DCVDelegation;
 Cloudflare.Hostnames = hostnames_1.Hostnames;
 Cloudflare.Snippets = snippets_1.Snippets;
+Cloudflare.RealtimeKit = realtime_kit_1.RealtimeKit;
 Cloudflare.Calls = calls_1.Calls;
 Cloudflare.CloudforceOne = cloudforce_one_1.CloudforceOne;
 Cloudflare.AIGateway = ai_gateway_1.AIGateway;
@@ -35203,16 +35229,19 @@ Cloudflare.BotnetFeed = botnet_feed_1.BotnetFeed;
 Cloudflare.SecurityTXT = security_txt_1.SecurityTXT;
 Cloudflare.Workflows = workflows_1.Workflows;
 Cloudflare.ResourceSharing = resource_sharing_1.ResourceSharing;
+Cloudflare.ResourceTagging = resource_tagging_1.ResourceTagging;
 Cloudflare.LeakedCredentialChecks = leaked_credential_checks_1.LeakedCredentialChecks;
 Cloudflare.ContentScanning = content_scanning_1.ContentScanning;
 Cloudflare.AbuseReports = abuse_reports_1.AbuseReports;
 Cloudflare.AI = ai_1.AI;
+Cloudflare.AISearch = aisearch_1.AISearch;
 Cloudflare.SecurityCenter = security_center_1.SecurityCenter;
 Cloudflare.BrowserRendering = browser_rendering_1.BrowserRendering;
 Cloudflare.CustomPages = custom_pages_1.CustomPages;
 Cloudflare.SecretsStore = secrets_store_1.SecretsStore;
 Cloudflare.Pipelines = pipelines_1.Pipelines;
 Cloudflare.SchemaValidation = schema_validation_1.SchemaValidation;
+Cloudflare.TokenValidation = token_validation_1.TokenValidation;
 var uploads_1 = __nccwpck_require__(48684);
 Object.defineProperty(exports, "toFile", ({ enumerable: true, get: function () { return uploads_1.toFile; } }));
 Object.defineProperty(exports, "fileFromPath", ({ enumerable: true, get: function () { return uploads_1.fileFromPath; } }));
@@ -35251,27 +35280,6 @@ exports.formatters = {
 exports.RFC1738 = 'RFC1738';
 exports.RFC3986 = 'RFC3986';
 //# sourceMappingURL=formats.js.map
-
-/***/ }),
-
-/***/ 18671:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.formats = exports.stringify = void 0;
-const formats_1 = __nccwpck_require__(90955);
-const formats = {
-    formatters: formats_1.formatters,
-    RFC1738: formats_1.RFC1738,
-    RFC3986: formats_1.RFC3986,
-    default: formats_1.default_format,
-};
-exports.formats = formats;
-var stringify_1 = __nccwpck_require__(47030);
-Object.defineProperty(exports, "stringify", ({ enumerable: true, get: function () { return stringify_1.stringify; } }));
-//# sourceMappingURL=index.js.map
 
 /***/ }),
 
@@ -35798,6 +35806,46 @@ exports.maybe_map = maybe_map;
 
 /***/ }),
 
+/***/ 62904:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.stringifyQuery = void 0;
+const qs = __importStar(__nccwpck_require__(47030));
+function stringifyQuery(query) {
+    return qs.stringify(query, { allowDots: true, arrayFormat: 'repeat' });
+}
+exports.stringifyQuery = stringifyQuery;
+//# sourceMappingURL=query.js.map
+
+/***/ }),
+
 /***/ 30404:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -36008,29 +36056,119 @@ exports.APIResource = APIResource;
 
 /***/ }),
 
-/***/ 47460:
+/***/ 15487:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AbuseReportListResponsesV4PagePagination = exports.AbuseReports = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const MitigationsAPI = __importStar(__nccwpck_require__(92935));
+const mitigations_1 = __nccwpck_require__(92935);
+const pagination_1 = __nccwpck_require__(30404);
+class AbuseReports extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.mitigations = new MitigationsAPI.Mitigations(this._client);
+    }
+    /**
+     * Submit the Abuse Report of a particular type
+     */
+    create(reportParam, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/abuse-reports/${reportParam}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List the abuse reports for a given account
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/abuse-reports`, AbuseReportListResponsesV4PagePagination, { query, ...options });
+    }
+    /**
+     * Retrieve the details of an abuse report.
+     */
+    get(reportParam, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/abuse-reports/${reportParam}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.AbuseReports = AbuseReports;
+class AbuseReportListResponsesV4PagePagination extends pagination_1.V4PagePagination {
+}
+exports.AbuseReportListResponsesV4PagePagination = AbuseReportListResponsesV4PagePagination;
+AbuseReports.AbuseReportListResponsesV4PagePagination = AbuseReportListResponsesV4PagePagination;
+AbuseReports.Mitigations = mitigations_1.Mitigations;
+AbuseReports.MitigationListResponsesV4PagePagination = mitigations_1.MitigationListResponsesV4PagePagination;
+AbuseReports.MitigationReviewResponsesSinglePage = mitigations_1.MitigationReviewResponsesSinglePage;
+//# sourceMappingURL=abuse-reports.js.map
+
+/***/ }),
+
+/***/ 92935:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.AbuseReports = void 0;
+exports.MitigationReviewResponsesSinglePage = exports.MitigationListResponsesV4PagePagination = exports.Mitigations = void 0;
 const resource_1 = __nccwpck_require__(59108);
-class AbuseReports extends resource_1.APIResource {
+const pagination_1 = __nccwpck_require__(30404);
+class Mitigations extends resource_1.APIResource {
     /**
-     * Submit the Abuse Report of a particular type
+     * List mitigations done to remediate the abuse report.
      */
-    create(reportType, params, options) {
+    list(reportId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/abuse-reports/${reportId}/mitigations`, MitigationListResponsesV4PagePagination, { query, ...options });
+    }
+    /**
+     * Request a review for mitigations on an account.
+     */
+    review(reportId, params, options) {
         const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/abuse-reports/${reportType}`, {
-            body,
-            ...options,
-        })._thenUnwrap((obj) => obj.result);
+        return this._client.getAPIList(`/accounts/${account_id}/abuse-reports/${reportId}/mitigations/appeal`, MitigationReviewResponsesSinglePage, { body, method: 'post', ...options });
     }
 }
-exports.AbuseReports = AbuseReports;
-//# sourceMappingURL=abuse-reports.js.map
+exports.Mitigations = Mitigations;
+class MitigationListResponsesV4PagePagination extends pagination_1.V4PagePagination {
+}
+exports.MitigationListResponsesV4PagePagination = MitigationListResponsesV4PagePagination;
+class MitigationReviewResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.MitigationReviewResponsesSinglePage = MitigationReviewResponsesSinglePage;
+Mitigations.MitigationListResponsesV4PagePagination = MitigationListResponsesV4PagePagination;
+Mitigations.MitigationReviewResponsesSinglePage = MitigationReviewResponsesSinglePage;
+//# sourceMappingURL=mitigations.js.map
 
 /***/ }),
 
@@ -36180,11 +36318,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Audit extends resource_1.APIResource {
     /**
-     * Gets a list of audit logs for an account. <br /> <br /> This is the beta release
-     * of Audit Logs Version 2. Since this is a beta version, there may be gaps or
-     * missing entries in the available audit logs. Be aware of the following
-     * limitations. <br /> <ul> <li>Audit logs are available only for the past 30 days.
-     * <br /></li> <li>Error handling is not yet implemented. <br /> </li> </ul>
+     * Gets a list of audit logs for an account.
      *
      * @example
      * ```ts
@@ -36797,17 +36931,110 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ACM = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const CustomTrustStoreAPI = __importStar(__nccwpck_require__(73578));
+const custom_trust_store_1 = __nccwpck_require__(73578);
 const TotalTLSAPI = __importStar(__nccwpck_require__(82046));
 const total_tls_1 = __nccwpck_require__(82046);
 class ACM extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.totalTLS = new TotalTLSAPI.TotalTLS(this._client);
+        this.customTrustStore = new CustomTrustStoreAPI.CustomTrustStore(this._client);
     }
 }
 exports.ACM = ACM;
 ACM.TotalTLS = total_tls_1.TotalTLS;
+ACM.CustomTrustStoresV4PagePaginationArray = custom_trust_store_1.CustomTrustStoresV4PagePaginationArray;
 //# sourceMappingURL=acm.js.map
+
+/***/ }),
+
+/***/ 73578:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CustomTrustStoresV4PagePaginationArray = exports.CustomTrustStore = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class CustomTrustStore extends resource_1.APIResource {
+    /**
+     * Add Custom Origin Trust Store for a Zone.
+     *
+     * @example
+     * ```ts
+     * const customTrustStore =
+     *   await client.acm.customTrustStore.create({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     certificate:
+     *       '-----BEGIN CERTIFICATE-----\nMIIDdjCCAl6gAwIBAgIJAPnMg0Fs+/B0MA0GCSqGSIb3DQEBCwUAMFsx...\n-----END CERTIFICATE-----\n',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/acm/custom_trust_store`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get Custom Origin Trust Store for a Zone.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const customTrustStore of client.acm.customTrustStore.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/acm/custom_trust_store`, CustomTrustStoresV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Removes a CA certificate from the custom origin trust store. Origins using
+     * certificates signed by this CA will no longer be trusted.
+     *
+     * @example
+     * ```ts
+     * const customTrustStore =
+     *   await client.acm.customTrustStore.delete(
+     *     '023e105f4ecef8ad9ca31a8372d0c353',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(customOriginTrustStoreId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/acm/custom_trust_store/${customOriginTrustStoreId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves details about a specific certificate in the custom origin trust store,
+     * including expiration and subject information.
+     *
+     * @example
+     * ```ts
+     * const customTrustStore =
+     *   await client.acm.customTrustStore.get(
+     *     '023e105f4ecef8ad9ca31a8372d0c353',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(customOriginTrustStoreId, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/acm/custom_trust_store/${customOriginTrustStoreId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.CustomTrustStore = CustomTrustStore;
+class CustomTrustStoresV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.CustomTrustStoresV4PagePaginationArray = CustomTrustStoresV4PagePaginationArray;
+CustomTrustStore.CustomTrustStoresV4PagePaginationArray = CustomTrustStoresV4PagePaginationArray;
+//# sourceMappingURL=custom-trust-store.js.map
 
 /***/ }),
 
@@ -36826,13 +37053,28 @@ class TotalTLS extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const totalTLS = await client.acm.totalTLS.create({
+     * const totalTLS = await client.acm.totalTLS.update({
      *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   enabled: true,
      * });
      * ```
      */
-    create(params, options) {
+    update(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/acm/total_tls`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Set Total TLS Settings or disable the feature for a Zone.
+     *
+     * @example
+     * ```ts
+     * const response = await client.acm.totalTLS.edit({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   enabled: true,
+     * });
+     * ```
+     */
+    edit(params, options) {
         const { zone_id, ...body } = params;
         return this._client.post(`/zones/${zone_id}/acm/total_tls`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
@@ -37366,7 +37608,10 @@ class BGPPrefixes extends resource_1.APIResource {
      * const bgpPrefix =
      *   await client.addressing.prefixes.bgpPrefixes.create(
      *     '2af39739cc4e3b5910c918468bb89828',
-     *     { account_id: '258def64c72dae45f3e4c8516e2111f2' },
+     *     {
+     *       account_id: '258def64c72dae45f3e4c8516e2111f2',
+     *       cidr: '192.0.2.0/24',
+     *     },
      *   );
      * ```
      */
@@ -37579,9 +37824,8 @@ class Prefixes extends resource_1.APIResource {
      * ```ts
      * const prefix = await client.addressing.prefixes.create({
      *   account_id: '258def64c72dae45f3e4c8516e2111f2',
-     *   asn: 209242,
+     *   asn: 13335,
      *   cidr: '192.0.2.0/24',
-     *   loa_document_id: 'd933b1530bc56c9953cf8ce166da8004',
      * });
      * ```
      */
@@ -37689,17 +37933,22 @@ const pagination_1 = __nccwpck_require__(30404);
 class ServiceBindings extends resource_1.APIResource {
     /**
      * Creates a new Service Binding, routing traffic to IPs within the given CIDR to a
-     * service running on Cloudflare's network. **Note:** This API may only be used on
-     * prefixes currently configured with a Magic Transit/Cloudflare CDN/Cloudflare
-     * Spectrum service binding, and only allows creating upgrade service bindings for
-     * the Cloudflare CDN or Cloudflare Spectrum.
+     * service running on Cloudflare's network. **NOTE:** The first Service Binding
+     * created for an IP Prefix must exactly match the IP Prefix's CIDR. Subsequent
+     * Service Bindings may be created with a more-specific CIDR. Refer to the
+     * [Service Bindings Documentation](https://developers.cloudflare.com/byoip/service-bindings/)
+     * for compatibility details.
      *
      * @example
      * ```ts
      * const serviceBinding =
      *   await client.addressing.prefixes.serviceBindings.create(
      *     '2af39739cc4e3b5910c918468bb89828',
-     *     { account_id: '258def64c72dae45f3e4c8516e2111f2' },
+     *     {
+     *       account_id: '258def64c72dae45f3e4c8516e2111f2',
+     *       cidr: '192.0.2.0/24',
+     *       service_id: '2db684ee7ca04e159946fd05b99e1bcd',
+     *     },
      *   );
      * ```
      */
@@ -38037,12 +38286,16 @@ exports.AIGatewayListResponsesV4PagePaginationArray = exports.AIGateway = void 0
 const resource_1 = __nccwpck_require__(59108);
 const DatasetsAPI = __importStar(__nccwpck_require__(84195));
 const datasets_1 = __nccwpck_require__(84195);
+const DynamicRoutingAPI = __importStar(__nccwpck_require__(75042));
+const dynamic_routing_1 = __nccwpck_require__(75042);
 const EvaluationTypesAPI = __importStar(__nccwpck_require__(81136));
 const evaluation_types_1 = __nccwpck_require__(81136);
 const EvaluationsAPI = __importStar(__nccwpck_require__(9791));
 const evaluations_1 = __nccwpck_require__(9791);
 const LogsAPI = __importStar(__nccwpck_require__(93205));
 const logs_1 = __nccwpck_require__(93205);
+const ProviderConfigsAPI = __importStar(__nccwpck_require__(79653));
+const provider_configs_1 = __nccwpck_require__(79653);
 const URLsAPI = __importStar(__nccwpck_require__(54696));
 const urls_1 = __nccwpck_require__(54696);
 const pagination_1 = __nccwpck_require__(30404);
@@ -38053,10 +38306,12 @@ class AIGateway extends resource_1.APIResource {
         this.logs = new LogsAPI.Logs(this._client);
         this.datasets = new DatasetsAPI.Datasets(this._client);
         this.evaluations = new EvaluationsAPI.Evaluations(this._client);
+        this.dynamicRouting = new DynamicRoutingAPI.DynamicRouting(this._client);
+        this.providerConfigs = new ProviderConfigsAPI.ProviderConfigs(this._client);
         this.urls = new URLsAPI.URLs(this._client);
     }
     /**
-     * Create a new Gateway
+     * Creates a new AI Gateway.
      *
      * @example
      * ```ts
@@ -38068,7 +38323,6 @@ class AIGateway extends resource_1.APIResource {
      *   collect_logs: true,
      *   rate_limiting_interval: 0,
      *   rate_limiting_limit: 0,
-     *   rate_limiting_technique: 'fixed',
      * });
      * ```
      */
@@ -38080,7 +38334,7 @@ class AIGateway extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update a Gateway
+     * Updates an existing AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38093,7 +38347,6 @@ class AIGateway extends resource_1.APIResource {
      *     collect_logs: true,
      *     rate_limiting_interval: 0,
      *     rate_limiting_limit: 0,
-     *     rate_limiting_technique: 'fixed',
      *   },
      * );
      * ```
@@ -38106,7 +38359,7 @@ class AIGateway extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Gateways
+     * Lists all AI Gateway evaluator types configured for the account.
      *
      * @example
      * ```ts
@@ -38123,7 +38376,7 @@ class AIGateway extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/ai-gateway/gateways`, AIGatewayListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a Gateway
+     * Deletes an AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38138,7 +38391,7 @@ class AIGateway extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/ai-gateway/gateways/${id}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetch a Gateway
+     * Retrieves details for a specific AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38165,6 +38418,9 @@ AIGateway.Datasets = datasets_1.Datasets;
 AIGateway.DatasetListResponsesV4PagePaginationArray = datasets_1.DatasetListResponsesV4PagePaginationArray;
 AIGateway.Evaluations = evaluations_1.Evaluations;
 AIGateway.EvaluationListResponsesV4PagePaginationArray = evaluations_1.EvaluationListResponsesV4PagePaginationArray;
+AIGateway.DynamicRouting = dynamic_routing_1.DynamicRouting;
+AIGateway.ProviderConfigs = provider_configs_1.ProviderConfigs;
+AIGateway.ProviderConfigListResponsesV4PagePaginationArray = provider_configs_1.ProviderConfigListResponsesV4PagePaginationArray;
 AIGateway.URLs = urls_1.URLs;
 //# sourceMappingURL=ai-gateway.js.map
 
@@ -38182,7 +38438,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Datasets extends resource_1.APIResource {
     /**
-     * Create a new Dataset
+     * Creates a new AI Gateway.
      *
      * @example
      * ```ts
@@ -38211,7 +38467,7 @@ class Datasets extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update a Dataset
+     * Updates an existing AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38241,7 +38497,7 @@ class Datasets extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Datasets
+     * Lists all AI Gateway evaluator types configured for the account.
      *
      * @example
      * ```ts
@@ -38259,7 +38515,7 @@ class Datasets extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/datasets`, DatasetListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a Dataset
+     * Deletes an AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38275,7 +38531,7 @@ class Datasets extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/datasets/${id}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetch a Dataset
+     * Retrieves details for a specific AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38297,6 +38553,224 @@ class DatasetListResponsesV4PagePaginationArray extends pagination_1.V4PagePagin
 exports.DatasetListResponsesV4PagePaginationArray = DatasetListResponsesV4PagePaginationArray;
 Datasets.DatasetListResponsesV4PagePaginationArray = DatasetListResponsesV4PagePaginationArray;
 //# sourceMappingURL=datasets.js.map
+
+/***/ }),
+
+/***/ 75042:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DynamicRouting = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class DynamicRouting extends resource_1.APIResource {
+    /**
+     * Create a new AI Gateway Dynamic Route.
+     *
+     * @example
+     * ```ts
+     * const dynamicRouting =
+     *   await client.aiGateway.dynamicRouting.create('54442216', {
+     *     account_id: '0d37909e38d3e99c29fa2cd343ac421a',
+     *     elements: [
+     *       {
+     *         id: 'id',
+     *         outputs: { next: { elementId: 'elementId' } },
+     *         type: 'start',
+     *       },
+     *     ],
+     *     name: 'name',
+     *   });
+     * ```
+     */
+    create(gatewayId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update an AI Gateway Dynamic Route.
+     *
+     * @example
+     * ```ts
+     * const dynamicRouting =
+     *   await client.aiGateway.dynamicRouting.update(
+     *     '54442216',
+     *     '54442216',
+     *     {
+     *       account_id: '0d37909e38d3e99c29fa2cd343ac421a',
+     *       name: 'Route Name',
+     *     },
+     *   );
+     * ```
+     */
+    update(gatewayId, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * List all AI Gateway Dynamic Routes.
+     *
+     * @example
+     * ```ts
+     * const dynamicRoutings =
+     *   await client.aiGateway.dynamicRouting.list('54442216', {
+     *     account_id: '0d37909e38d3e99c29fa2cd343ac421a',
+     *   });
+     * ```
+     */
+    list(gatewayId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes`, options);
+    }
+    /**
+     * Delete an AI Gateway Dynamic Route.
+     *
+     * @example
+     * ```ts
+     * const dynamicRouting =
+     *   await client.aiGateway.dynamicRouting.delete(
+     *     '54442216',
+     *     '54442216',
+     *     { account_id: '0d37909e38d3e99c29fa2cd343ac421a' },
+     *   );
+     * ```
+     */
+    delete(gatewayId, id, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Create a new AI Gateway Dynamic Route Deployment.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiGateway.dynamicRouting.createDeployment(
+     *     '54442216',
+     *     '54442216',
+     *     {
+     *       account_id: '0d37909e38d3e99c29fa2cd343ac421a',
+     *       version_id: '54442216',
+     *     },
+     *   );
+     * ```
+     */
+    createDeployment(gatewayId, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}/deployments`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Create a new AI Gateway Dynamic Route Version.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiGateway.dynamicRouting.createVersion(
+     *     '54442216',
+     *     '54442216',
+     *     {
+     *       account_id: '0d37909e38d3e99c29fa2cd343ac421a',
+     *       elements: [
+     *         {
+     *           id: 'id',
+     *           outputs: { next: { elementId: 'elementId' } },
+     *           type: 'start',
+     *         },
+     *       ],
+     *     },
+     *   );
+     * ```
+     */
+    createVersion(gatewayId, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}/versions`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get an AI Gateway Dynamic Route.
+     *
+     * @example
+     * ```ts
+     * const dynamicRouting =
+     *   await client.aiGateway.dynamicRouting.get(
+     *     '54442216',
+     *     '54442216',
+     *     { account_id: '0d37909e38d3e99c29fa2cd343ac421a' },
+     *   );
+     * ```
+     */
+    get(gatewayId, id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get an AI Gateway Dynamic Route Version.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiGateway.dynamicRouting.getVersion(
+     *     '54442216',
+     *     '54442216',
+     *     '54442216',
+     *     { account_id: '0d37909e38d3e99c29fa2cd343ac421a' },
+     *   );
+     * ```
+     */
+    getVersion(gatewayId, id, versionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}/versions/${versionId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List all AI Gateway Dynamic Route Deployments.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiGateway.dynamicRouting.listDeployments(
+     *     '54442216',
+     *     '54442216',
+     *     { account_id: '0d37909e38d3e99c29fa2cd343ac421a' },
+     *   );
+     * ```
+     */
+    listDeployments(gatewayId, id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}/deployments`, options);
+    }
+    /**
+     * List all AI Gateway Dynamic Route Versions.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiGateway.dynamicRouting.listVersions(
+     *     '54442216',
+     *     '54442216',
+     *     { account_id: '0d37909e38d3e99c29fa2cd343ac421a' },
+     *   );
+     * ```
+     */
+    listVersions(gatewayId, id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/routes/${id}/versions`, options);
+    }
+}
+exports.DynamicRouting = DynamicRouting;
+//# sourceMappingURL=dynamic-routing.js.map
 
 /***/ }),
 
@@ -38351,7 +38825,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Evaluations extends resource_1.APIResource {
     /**
-     * Create a new Evaluation
+     * Creates a new AI Gateway.
      *
      * @example
      * ```ts
@@ -38372,7 +38846,7 @@ class Evaluations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Evaluations
+     * Lists all AI Gateway evaluator types configured for the account.
      *
      * @example
      * ```ts
@@ -38390,7 +38864,7 @@ class Evaluations extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/evaluations`, EvaluationListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a Evaluation
+     * Deletes an AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38407,7 +38881,7 @@ class Evaluations extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/evaluations/${id}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetch a Evaluation
+     * Retrieves details for a specific AI Gateway dataset.
      *
      * @example
      * ```ts
@@ -38480,7 +38954,7 @@ class Logs extends resource_1.APIResource {
         });
     }
     /**
-     * Patch Gateway Log
+     * Updates metadata for an AI Gateway log entry.
      *
      * @example
      * ```ts
@@ -38499,7 +38973,7 @@ class Logs extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Gateway Log Detail
+     * Retrieves detailed information for a specific AI Gateway log entry.
      *
      * @example
      * ```ts
@@ -38515,7 +38989,7 @@ class Logs extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/logs/${id}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Gateway Log Request
+     * Retrieves the original request payload for an AI Gateway log entry.
      *
      * @example
      * ```ts
@@ -38531,7 +39005,7 @@ class Logs extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/logs/${id}/request`, options);
     }
     /**
-     * Get Gateway Log Response
+     * Retrieves the response payload for an AI Gateway log entry.
      *
      * @example
      * ```ts
@@ -38556,6 +39030,72 @@ Logs.LogListResponsesV4PagePaginationArray = LogListResponsesV4PagePaginationArr
 
 /***/ }),
 
+/***/ 79653:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ProviderConfigListResponsesV4PagePaginationArray = exports.ProviderConfigs = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class ProviderConfigs extends resource_1.APIResource {
+    /**
+     * Creates a new AI Gateway.
+     *
+     * @example
+     * ```ts
+     * const providerConfig =
+     *   await client.aiGateway.providerConfigs.create(
+     *     'my-gateway',
+     *     {
+     *       account_id: '3ebbcb006d4d46d7bb6a8c7f14676cb0',
+     *       alias: 'alias',
+     *       default_config: true,
+     *       provider_slug: 'provider_slug',
+     *       secret: 'secret',
+     *       secret_id: 'secret_id',
+     *     },
+     *   );
+     * ```
+     */
+    create(gatewayId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/provider_configs`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all AI Gateway evaluator types configured for the account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const providerConfigListResponse of client.aiGateway.providerConfigs.list(
+     *   'my-gateway',
+     *   { account_id: '3ebbcb006d4d46d7bb6a8c7f14676cb0' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(gatewayId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-gateway/gateways/${gatewayId}/provider_configs`, ProviderConfigListResponsesV4PagePaginationArray, { query, ...options });
+    }
+}
+exports.ProviderConfigs = ProviderConfigs;
+class ProviderConfigListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.ProviderConfigListResponsesV4PagePaginationArray = ProviderConfigListResponsesV4PagePaginationArray;
+ProviderConfigs.ProviderConfigListResponsesV4PagePaginationArray =
+    ProviderConfigListResponsesV4PagePaginationArray;
+//# sourceMappingURL=provider-configs.js.map
+
+/***/ }),
+
 /***/ 54696:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -38567,7 +39107,7 @@ exports.URLs = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class URLs extends resource_1.APIResource {
     /**
-     * Get Gateway URL
+     * Retrieves the endpoint URL for an AI Gateway.
      *
      * @example
      * ```ts
@@ -38667,7 +39207,7 @@ AI.TaskListResponsesSinglePage = tasks_1.TaskListResponsesSinglePage;
 AI.Models = models_1.Models;
 AI.ModelListResponsesV4PagePaginationArray = models_1.ModelListResponsesV4PagePaginationArray;
 AI.ToMarkdown = to_markdown_1.ToMarkdown;
-AI.ToMarkdownTransformResponsesSinglePage = to_markdown_1.ToMarkdownTransformResponsesSinglePage;
+AI.ToMarkdownSupportedResponsesSinglePage = to_markdown_1.ToMarkdownSupportedResponsesSinglePage;
 //# sourceMappingURL=ai.js.map
 
 /***/ }),
@@ -38684,7 +39224,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Authors extends resource_1.APIResource {
     /**
-     * Author Search
+     * Searches Workers AI models by author or organization name.
      */
     list(params, options) {
         const { account_id } = params;
@@ -38735,7 +39275,7 @@ const resource_1 = __nccwpck_require__(59108);
 const Core = __importStar(__nccwpck_require__(75487));
 class Assets extends resource_1.APIResource {
     /**
-     * Upload a Finetune Asset
+     * Uploads training data assets for a Workers AI fine-tuning job.
      */
     create(finetuneId, params, options) {
         const { account_id, ...body } = params;
@@ -38790,14 +39330,14 @@ class Finetunes extends resource_1.APIResource {
         this.public = new PublicAPI.Public(this._client);
     }
     /**
-     * Create a new Finetune
+     * Creates a new fine-tuning job for a Workers AI model using custom training data.
      */
     create(params, options) {
         const { account_id, ...body } = params;
         return this._client.post(`/accounts/${account_id}/ai/finetunes`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Finetunes
+     * Lists all fine-tuning jobs created by the account, including status and metrics.
      */
     list(params, options) {
         const { account_id } = params;
@@ -38824,7 +39364,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Public extends resource_1.APIResource {
     /**
-     * List Public Finetunes
+     * Lists publicly available fine-tuned models that can be used with Workers AI.
      */
     list(params, options) {
         const { account_id, ...query } = params;
@@ -38881,7 +39421,7 @@ class Models extends resource_1.APIResource {
         this.schema = new SchemaAPI.Schema(this._client);
     }
     /**
-     * Model Search
+     * Searches Workers AI models by name or description.
      */
     list(params, options) {
         const { account_id, ...query } = params;
@@ -38909,7 +39449,7 @@ exports.Schema = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Schema extends resource_1.APIResource {
     /**
-     * Get Model Schema
+     * Retrieves the input and output JSON schema definition for a Workers AI model.
      */
     get(params, options) {
         const { account_id, ...query } = params;
@@ -38933,7 +39473,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Tasks extends resource_1.APIResource {
     /**
-     * Task Search
+     * Searches Workers AI models by task type (e.g., text-generation, embeddings).
      */
     list(params, options) {
         const { account_id } = params;
@@ -38950,36 +39490,1246 @@ Tasks.TaskListResponsesSinglePage = TaskListResponsesSinglePage;
 /***/ }),
 
 /***/ 22554:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ToMarkdownSupportedResponsesSinglePage = exports.ToMarkdown = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const Core = __importStar(__nccwpck_require__(75487));
+const pagination_1 = __nccwpck_require__(30404);
+class ToMarkdown extends resource_1.APIResource {
+    /**
+     * Lists all file formats supported for conversion to Markdown.
+     */
+    supported(params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai/tomarkdown/supported`, ToMarkdownSupportedResponsesSinglePage, options);
+    }
+    /**
+     * Converts uploaded files into Markdown format using Workers AI.
+     */
+    transform(params, options) {
+        const { account_id, file } = params;
+        return this._client.post(`/accounts/${account_id}/ai/tomarkdown`, Core.multipartFormRequestOptions({ body: file, ...options }))._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.ToMarkdown = ToMarkdown;
+class ToMarkdownSupportedResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.ToMarkdownSupportedResponsesSinglePage = ToMarkdownSupportedResponsesSinglePage;
+ToMarkdown.ToMarkdownSupportedResponsesSinglePage = ToMarkdownSupportedResponsesSinglePage;
+//# sourceMappingURL=to-markdown.js.map
+
+/***/ }),
+
+/***/ 10461:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AISearch = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const TokensAPI = __importStar(__nccwpck_require__(23289));
+const tokens_1 = __nccwpck_require__(23289);
+const InstancesAPI = __importStar(__nccwpck_require__(53292));
+const instances_1 = __nccwpck_require__(53292);
+const NamespacesAPI = __importStar(__nccwpck_require__(35002));
+const namespaces_1 = __nccwpck_require__(35002);
+class AISearch extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.namespaces = new NamespacesAPI.Namespaces(this._client);
+        this.instances = new InstancesAPI.Instances(this._client);
+        this.tokens = new TokensAPI.Tokens(this._client);
+    }
+}
+exports.AISearch = AISearch;
+AISearch.Namespaces = namespaces_1.Namespaces;
+AISearch.NamespaceListResponsesV4PagePaginationArray = namespaces_1.NamespaceListResponsesV4PagePaginationArray;
+AISearch.Instances = instances_1.Instances;
+AISearch.InstanceListResponsesV4PagePaginationArray = instances_1.InstanceListResponsesV4PagePaginationArray;
+AISearch.Tokens = tokens_1.Tokens;
+AISearch.TokenListResponsesV4PagePaginationArray = tokens_1.TokenListResponsesV4PagePaginationArray;
+//# sourceMappingURL=aisearch.js.map
+
+/***/ }),
+
+/***/ 53292:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.InstanceListResponsesV4PagePaginationArray = exports.Instances = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const JobsAPI = __importStar(__nccwpck_require__(9154));
+const jobs_1 = __nccwpck_require__(9154);
+const pagination_1 = __nccwpck_require__(30404);
+class Instances extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.jobs = new JobsAPI.Jobs(this._client);
+    }
+    /**
+     * Create a new instance.
+     *
+     * @example
+     * ```ts
+     * const instance = await client.aiSearch.instances.create({
+     *   account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *   id: 'my-ai-search',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/instances`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update instance.
+     *
+     * @example
+     * ```ts
+     * const instance = await client.aiSearch.instances.update(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    update(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/ai-search/instances/${id}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List instances.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const instanceListResponse of client.aiSearch.instances.list(
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/instances`, InstanceListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete instance.
+     *
+     * @example
+     * ```ts
+     * const instance = await client.aiSearch.instances.delete(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    delete(id, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/ai-search/instances/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Performs a chat completion request against an AI Search instance, using indexed
+     * content as context for generating responses.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.instances.chatCompletions(
+     *     'my-ai-search',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       messages: [{ content: 'content', role: 'system' }],
+     *     },
+     *   );
+     * ```
+     */
+    chatCompletions(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/instances/${id}/chat/completions`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Read instance.
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.instances.read(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    read(id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/instances/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Executes a semantic search query against an AI Search instance to find relevant
+     * indexed content.
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.instances.search(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    search(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/instances/${id}/search`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves usage statistics for AI Search instances.
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.instances.stats(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    stats(id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/instances/${id}/stats`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Instances = Instances;
+class InstanceListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.InstanceListResponsesV4PagePaginationArray = InstanceListResponsesV4PagePaginationArray;
+Instances.InstanceListResponsesV4PagePaginationArray = InstanceListResponsesV4PagePaginationArray;
+Instances.Jobs = jobs_1.Jobs;
+Instances.JobListResponsesV4PagePaginationArray = jobs_1.JobListResponsesV4PagePaginationArray;
+//# sourceMappingURL=instances.js.map
+
+/***/ }),
+
+/***/ 9154:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ToMarkdownTransformResponsesSinglePage = exports.ToMarkdown = void 0;
+exports.JobListResponsesV4PagePaginationArray = exports.Jobs = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
-class ToMarkdown extends resource_1.APIResource {
+class Jobs extends resource_1.APIResource {
     /**
-     * Convert Files into Markdown
+     * Creates a new indexing job for an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * const job = await client.aiSearch.instances.jobs.create(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
      */
-    transform(file, params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/ai/tomarkdown`, ToMarkdownTransformResponsesSinglePage, {
-            body: file,
-            method: 'post',
+    create(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/instances/${id}/jobs`, {
+            body,
             ...options,
-            headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
-            __binaryRequest: true,
-        });
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists indexing jobs for an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const jobListResponse of client.aiSearch.instances.jobs.list(
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(id, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/instances/${id}/jobs`, JobListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Retrieves details for a specific AI Search indexing job.
+     *
+     * @example
+     * ```ts
+     * const job = await client.aiSearch.instances.jobs.get(
+     *   'my-ai-search',
+     *   'job_id',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    get(id, jobId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/instances/${id}/jobs/${jobId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists log entries for an AI Search indexing job.
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.instances.jobs.logs(
+     *   'my-ai-search',
+     *   'job_id',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    logs(id, jobId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/instances/${id}/jobs/${jobId}/logs`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
-exports.ToMarkdown = ToMarkdown;
-class ToMarkdownTransformResponsesSinglePage extends pagination_1.SinglePage {
+exports.Jobs = Jobs;
+class JobListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
-exports.ToMarkdownTransformResponsesSinglePage = ToMarkdownTransformResponsesSinglePage;
-ToMarkdown.ToMarkdownTransformResponsesSinglePage = ToMarkdownTransformResponsesSinglePage;
-//# sourceMappingURL=to-markdown.js.map
+exports.JobListResponsesV4PagePaginationArray = JobListResponsesV4PagePaginationArray;
+Jobs.JobListResponsesV4PagePaginationArray = JobListResponsesV4PagePaginationArray;
+//# sourceMappingURL=jobs.js.map
+
+/***/ }),
+
+/***/ 90595:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.InstanceListResponsesV4PagePaginationArray = exports.Instances = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ItemsAPI = __importStar(__nccwpck_require__(55543));
+const items_1 = __nccwpck_require__(55543);
+const JobsAPI = __importStar(__nccwpck_require__(20875));
+const jobs_1 = __nccwpck_require__(20875);
+const pagination_1 = __nccwpck_require__(30404);
+class Instances extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.jobs = new JobsAPI.Jobs(this._client);
+        this.items = new ItemsAPI.Items(this._client);
+    }
+    /**
+     * Create a new instance.
+     *
+     * @example
+     * ```ts
+     * const instance =
+     *   await client.aiSearch.namespaces.instances.create(
+     *     'my-namespace',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       id: 'my-ai-search',
+     *     },
+     *   );
+     * ```
+     */
+    create(name, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/instances`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update instance.
+     *
+     * @example
+     * ```ts
+     * const instance =
+     *   await client.aiSearch.namespaces.instances.update(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    update(name, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List instances.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const instanceListResponse of client.aiSearch.namespaces.instances.list(
+     *   'my-namespace',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(name, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/namespaces/${name}/instances`, InstanceListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete instance.
+     *
+     * @example
+     * ```ts
+     * const instance =
+     *   await client.aiSearch.namespaces.instances.delete(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    delete(name, id, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Performs a chat completion request against an AI Search instance, using indexed
+     * content as context for generating responses.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.chatCompletions(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       messages: [{ content: 'content', role: 'system' }],
+     *     },
+     *   );
+     * ```
+     */
+    chatCompletions(name, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/chat/completions`, { body, ...options });
+    }
+    /**
+     * Read instance.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.read(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    read(name, id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Executes a semantic search query against an AI Search instance to find relevant
+     * indexed content.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.search(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    search(name, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/search`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves usage statistics for AI Search instances.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.stats(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    stats(name, id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/stats`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Instances = Instances;
+class InstanceListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.InstanceListResponsesV4PagePaginationArray = InstanceListResponsesV4PagePaginationArray;
+Instances.InstanceListResponsesV4PagePaginationArray = InstanceListResponsesV4PagePaginationArray;
+Instances.Jobs = jobs_1.Jobs;
+Instances.JobListResponsesV4PagePaginationArray = jobs_1.JobListResponsesV4PagePaginationArray;
+Instances.Items = items_1.Items;
+Instances.ItemListResponsesV4PagePaginationArray = items_1.ItemListResponsesV4PagePaginationArray;
+//# sourceMappingURL=instances.js.map
+
+/***/ }),
+
+/***/ 55543:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ItemListResponsesV4PagePaginationArray = exports.Items = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const Core = __importStar(__nccwpck_require__(75487));
+const pagination_1 = __nccwpck_require__(30404);
+class Items extends resource_1.APIResource {
+    /**
+     * Lists indexed items in an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const itemListResponse of client.aiSearch.namespaces.instances.items.list(
+     *   'my-namespace',
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(name, id, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items`, ItemListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes a file from a managed AI Search instance and triggers a reindex.
+     *
+     * @example
+     * ```ts
+     * const item =
+     *   await client.aiSearch.namespaces.instances.items.delete(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'item_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    delete(name, id, itemId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists chunks for a specific item in an AI Search instance, including their text
+     * content.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.items.chunks(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'item_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    chunks(name, id, itemId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemId}/chunks`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Creates or updates an indexed item in an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.items.createOrUpdate(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       key: 'key',
+     *       next_action: 'INDEX',
+     *     },
+     *   );
+     * ```
+     */
+    createOrUpdate(name, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Downloads the raw file content for a specific item from the managed AI Search
+     * instance storage.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.items.download(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'item_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     *
+     * const content = await response.blob();
+     * console.log(content);
+     * ```
+     */
+    download(name, id, itemId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemId}/download`, {
+            ...options,
+            headers: { Accept: 'application/octet-stream', ...options?.headers },
+            __binaryResponse: true,
+        });
+    }
+    /**
+     * Retrieves a specific indexed item from an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * const item =
+     *   await client.aiSearch.namespaces.instances.items.get(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'item_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    get(name, id, itemId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists processing logs for a specific item in an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.items.logs(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'item_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    logs(name, id, itemId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemId}/logs`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Syncs an item to an AI Search instance index.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.items.sync(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'item_id',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       next_action: 'INDEX',
+     *     },
+     *   );
+     * ```
+     */
+    sync(name, id, itemId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Uploads a file to a managed AI Search instance via multipart/form-data (max
+     * 4MB).
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.items.upload(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       file: { file: fs.createReadStream('path/to/file') },
+     *     },
+     *   );
+     * ```
+     */
+    upload(name, id, params, options) {
+        const { account_id, file } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items`, Core.multipartFormRequestOptions({ body: file, ...options }))._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Items = Items;
+class ItemListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.ItemListResponsesV4PagePaginationArray = ItemListResponsesV4PagePaginationArray;
+Items.ItemListResponsesV4PagePaginationArray = ItemListResponsesV4PagePaginationArray;
+//# sourceMappingURL=items.js.map
+
+/***/ }),
+
+/***/ 20875:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.JobListResponsesV4PagePaginationArray = exports.Jobs = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Jobs extends resource_1.APIResource {
+    /**
+     * Creates a new indexing job for an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * const job =
+     *   await client.aiSearch.namespaces.instances.jobs.create(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    create(name, id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/jobs`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates the status of an AI Search indexing job.
+     *
+     * @example
+     * ```ts
+     * const job =
+     *   await client.aiSearch.namespaces.instances.jobs.update(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'job_id',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       action: 'cancel',
+     *     },
+     *   );
+     * ```
+     */
+    update(name, id, jobId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/jobs/${jobId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists indexing jobs for an AI Search instance.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const jobListResponse of client.aiSearch.namespaces.instances.jobs.list(
+     *   'my-namespace',
+     *   'my-ai-search',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(name, id, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/jobs`, JobListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Retrieves details for a specific AI Search indexing job.
+     *
+     * @example
+     * ```ts
+     * const job =
+     *   await client.aiSearch.namespaces.instances.jobs.get(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'job_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    get(name, id, jobId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/jobs/${jobId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists log entries for an AI Search indexing job.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.instances.jobs.logs(
+     *     'my-namespace',
+     *     'my-ai-search',
+     *     'job_id',
+     *     { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     *   );
+     * ```
+     */
+    logs(name, id, jobId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/jobs/${jobId}/logs`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Jobs = Jobs;
+class JobListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.JobListResponsesV4PagePaginationArray = JobListResponsesV4PagePaginationArray;
+Jobs.JobListResponsesV4PagePaginationArray = JobListResponsesV4PagePaginationArray;
+//# sourceMappingURL=jobs.js.map
+
+/***/ }),
+
+/***/ 35002:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.NamespaceListResponsesV4PagePaginationArray = exports.Namespaces = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const InstancesAPI = __importStar(__nccwpck_require__(90595));
+const instances_1 = __nccwpck_require__(90595);
+const pagination_1 = __nccwpck_require__(30404);
+class Namespaces extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.instances = new InstancesAPI.Instances(this._client);
+    }
+    /**
+     * Create a new namespace.
+     *
+     * @example
+     * ```ts
+     * const namespace = await client.aiSearch.namespaces.create({
+     *   account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *   name: 'name',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update namespace.
+     *
+     * @example
+     * ```ts
+     * const namespace = await client.aiSearch.namespaces.update(
+     *   'production',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    update(name, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/ai-search/namespaces/${name}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List namespaces.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const namespaceListResponse of client.aiSearch.namespaces.list(
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/namespaces`, NamespaceListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete namespace.
+     *
+     * @example
+     * ```ts
+     * const namespace = await client.aiSearch.namespaces.delete(
+     *   'production',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    delete(name, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/ai-search/namespaces/${name}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Performs a chat completion request against multiple AI Search instances in
+     * parallel, merging retrieved content as context for generating a response.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.aiSearch.namespaces.chatCompletions(
+     *     'my-namespace',
+     *     {
+     *       account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *       ai_search_options: { instance_ids: ['my-ai-search'] },
+     *       messages: [{ content: 'content', role: 'system' }],
+     *     },
+     *   );
+     * ```
+     */
+    chatCompletions(name, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/chat/completions`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Read namespace.
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.namespaces.read(
+     *   'production',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    read(name, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/namespaces/${name}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Multi-Instance Search
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.namespaces.search(
+     *   'my-namespace',
+     *   {
+     *     account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *     ai_search_options: { instance_ids: ['my-ai-search'] },
+     *   },
+     * );
+     * ```
+     */
+    search(name, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/namespaces/${name}/search`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Namespaces = Namespaces;
+class NamespaceListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.NamespaceListResponsesV4PagePaginationArray = NamespaceListResponsesV4PagePaginationArray;
+Namespaces.NamespaceListResponsesV4PagePaginationArray = NamespaceListResponsesV4PagePaginationArray;
+Namespaces.Instances = instances_1.Instances;
+Namespaces.InstanceListResponsesV4PagePaginationArray = instances_1.InstanceListResponsesV4PagePaginationArray;
+//# sourceMappingURL=namespaces.js.map
+
+/***/ }),
+
+/***/ 23289:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TokenListResponsesV4PagePaginationArray = exports.Tokens = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Tokens extends resource_1.APIResource {
+    /**
+     * Create a new token.
+     *
+     * @example
+     * ```ts
+     * const token = await client.aiSearch.tokens.create({
+     *   account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *   cf_api_id: 'a1b2c3d4e5f6',
+     *   cf_api_key: 'abc123',
+     *   name: 'my-token',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai-search/tokens`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update token.
+     *
+     * @example
+     * ```ts
+     * const token = await client.aiSearch.tokens.update(
+     *   '62af0db3-c410-40b2-9ee3-0e93f6dd1de0',
+     *   {
+     *     account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22',
+     *     cf_api_id: 'a1b2c3d4e5f6',
+     *     cf_api_key: 'abc123',
+     *     name: 'my-token',
+     *   },
+     * );
+     * ```
+     */
+    update(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/ai-search/tokens/${id}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List tokens.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const tokenListResponse of client.aiSearch.tokens.list(
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/ai-search/tokens`, TokenListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete token.
+     *
+     * @example
+     * ```ts
+     * const token = await client.aiSearch.tokens.delete(
+     *   '62af0db3-c410-40b2-9ee3-0e93f6dd1de0',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    delete(id, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/ai-search/tokens/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Read token.
+     *
+     * @example
+     * ```ts
+     * const response = await client.aiSearch.tokens.read(
+     *   '62af0db3-c410-40b2-9ee3-0e93f6dd1de0',
+     *   { account_id: 'c3dc5f0b34a14ff8e1b3ec04895e1b22' },
+     * );
+     * ```
+     */
+    read(id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/ai-search/tokens/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Tokens = Tokens;
+class TokenListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.TokenListResponsesV4PagePaginationArray = TokenListResponsesV4PagePaginationArray;
+Tokens.TokenListResponsesV4PagePaginationArray = TokenListResponsesV4PagePaginationArray;
+//# sourceMappingURL=tokens.js.map
 
 /***/ }),
 
@@ -39021,6 +40771,8 @@ const HistoryAPI = __importStar(__nccwpck_require__(48579));
 const history_1 = __nccwpck_require__(48579);
 const PoliciesAPI = __importStar(__nccwpck_require__(20409));
 const policies_1 = __nccwpck_require__(20409);
+const SilencesAPI = __importStar(__nccwpck_require__(13651));
+const silences_1 = __nccwpck_require__(13651);
 const DestinationsAPI = __importStar(__nccwpck_require__(23064));
 const destinations_1 = __nccwpck_require__(23064);
 class Alerting extends resource_1.APIResource {
@@ -39030,6 +40782,7 @@ class Alerting extends resource_1.APIResource {
         this.destinations = new DestinationsAPI.Destinations(this._client);
         this.history = new HistoryAPI.HistoryResource(this._client);
         this.policies = new PoliciesAPI.Policies(this._client);
+        this.silences = new SilencesAPI.Silences(this._client);
     }
 }
 exports.Alerting = Alerting;
@@ -39039,6 +40792,9 @@ Alerting.HistoryResource = history_1.HistoryResource;
 Alerting.HistoriesV4PagePaginationArray = history_1.HistoriesV4PagePaginationArray;
 Alerting.Policies = policies_1.Policies;
 Alerting.PoliciesSinglePage = policies_1.PoliciesSinglePage;
+Alerting.Silences = silences_1.Silences;
+Alerting.SilenceUpdateResponsesSinglePage = silences_1.SilenceUpdateResponsesSinglePage;
+Alerting.SilenceListResponsesSinglePage = silences_1.SilenceListResponsesSinglePage;
 //# sourceMappingURL=alerting.js.map
 
 /***/ }),
@@ -39282,7 +41038,7 @@ class Webhooks extends resource_1.APIResource {
      * ```ts
      * const webhook =
      *   await client.alerting.destinations.webhooks.update(
-     *     'b115d5ec-15c6-41ee-8b76-92c449b5227b',
+     *     'b115d5ec15c641ee8b7692c449b5227b',
      *     {
      *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *       name: 'Slack Webhook',
@@ -39322,7 +41078,7 @@ class Webhooks extends resource_1.APIResource {
      * ```ts
      * const webhook =
      *   await client.alerting.destinations.webhooks.delete(
-     *     'b115d5ec-15c6-41ee-8b76-92c449b5227b',
+     *     'b115d5ec15c641ee8b7692c449b5227b',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -39338,7 +41094,7 @@ class Webhooks extends resource_1.APIResource {
      * ```ts
      * const webhooks =
      *   await client.alerting.destinations.webhooks.get(
-     *     'b115d5ec-15c6-41ee-8b76-92c449b5227b',
+     *     'b115d5ec15c641ee8b7692c449b5227b',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -39435,7 +41191,7 @@ class Policies extends resource_1.APIResource {
      * @example
      * ```ts
      * const policy = await client.alerting.policies.update(
-     *   '0da2b59e-f118-439d-8097-bdfb215203c9',
+     *   '0da2b59ef118439d8097bdfb215203c9',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
@@ -39470,7 +41226,7 @@ class Policies extends resource_1.APIResource {
      * @example
      * ```ts
      * const policy = await client.alerting.policies.delete(
-     *   '0da2b59e-f118-439d-8097-bdfb215203c9',
+     *   '0da2b59ef118439d8097bdfb215203c9',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
@@ -39485,7 +41241,7 @@ class Policies extends resource_1.APIResource {
      * @example
      * ```ts
      * const policy = await client.alerting.policies.get(
-     *   '0da2b59e-f118-439d-8097-bdfb215203c9',
+     *   '0da2b59ef118439d8097bdfb215203c9',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
@@ -39501,6 +41257,113 @@ class PoliciesSinglePage extends pagination_1.SinglePage {
 exports.PoliciesSinglePage = PoliciesSinglePage;
 Policies.PoliciesSinglePage = PoliciesSinglePage;
 //# sourceMappingURL=policies.js.map
+
+/***/ }),
+
+/***/ 13651:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SilenceListResponsesSinglePage = exports.SilenceUpdateResponsesSinglePage = exports.Silences = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Silences extends resource_1.APIResource {
+    /**
+     * Creates a new silence for an account.
+     *
+     * @example
+     * ```ts
+     * const silence = await client.alerting.silences.create({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   body: [{}],
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, body } = params;
+        return this._client.post(`/accounts/${account_id}/alerting/v3/silences`, { body: body, ...options });
+    }
+    /**
+     * Updates existing silences for an account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const silenceUpdateResponse of client.alerting.silences.update(
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     body: [{}],
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    update(params, options) {
+        const { account_id, body } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/alerting/v3/silences`, SilenceUpdateResponsesSinglePage, { body: body, method: 'put', ...options });
+    }
+    /**
+     * Gets a list of silences for an account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const silenceListResponse of client.alerting.silences.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/alerting/v3/silences`, SilenceListResponsesSinglePage, options);
+    }
+    /**
+     * Deletes an existing silence for an account.
+     *
+     * @example
+     * ```ts
+     * const silence = await client.alerting.silences.delete(
+     *   'f878e90c23f44126ae3cfc399f646977',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(silenceId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/alerting/v3/silences/${silenceId}`, options);
+    }
+    /**
+     * Gets a specific silence for an account.
+     *
+     * @example
+     * ```ts
+     * const silence = await client.alerting.silences.get(
+     *   'f878e90c23f44126ae3cfc399f646977',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(silenceId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/alerting/v3/silences/${silenceId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Silences = Silences;
+class SilenceUpdateResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.SilenceUpdateResponsesSinglePage = SilenceUpdateResponsesSinglePage;
+class SilenceListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.SilenceListResponsesSinglePage = SilenceListResponsesSinglePage;
+Silences.SilenceUpdateResponsesSinglePage = SilenceUpdateResponsesSinglePage;
+Silences.SilenceListResponsesSinglePage = SilenceListResponsesSinglePage;
+//# sourceMappingURL=silences.js.map
 
 /***/ }),
 
@@ -39544,6 +41407,8 @@ const DiscoveryAPI = __importStar(__nccwpck_require__(73139));
 const discovery_1 = __nccwpck_require__(73139);
 const ExpressionTemplateAPI = __importStar(__nccwpck_require__(49259));
 const expression_template_1 = __nccwpck_require__(49259);
+const LabelsAPI = __importStar(__nccwpck_require__(8831));
+const labels_1 = __nccwpck_require__(8831);
 const OperationsAPI = __importStar(__nccwpck_require__(19813));
 const operations_1 = __nccwpck_require__(19813);
 const SettingsAPI = __importStar(__nccwpck_require__(9875));
@@ -39554,6 +41419,7 @@ class APIGateway extends resource_1.APIResource {
         super(...arguments);
         this.configurations = new ConfigurationsAPI.Configurations(this._client);
         this.discovery = new DiscoveryAPI.Discovery(this._client);
+        this.labels = new LabelsAPI.Labels(this._client);
         this.operations = new OperationsAPI.Operations(this._client);
         this.schemas = new SchemasAPI.Schemas(this._client);
         this.settings = new SettingsAPI.Settings(this._client);
@@ -39564,12 +41430,14 @@ class APIGateway extends resource_1.APIResource {
 exports.APIGateway = APIGateway;
 APIGateway.Configurations = configurations_1.Configurations;
 APIGateway.Discovery = discovery_1.Discovery;
+APIGateway.Labels = labels_1.Labels;
+APIGateway.LabelListResponsesV4PagePaginationArray = labels_1.LabelListResponsesV4PagePaginationArray;
 APIGateway.Operations = operations_1.Operations;
 APIGateway.OperationListResponsesV4PagePaginationArray = operations_1.OperationListResponsesV4PagePaginationArray;
 APIGateway.OperationBulkCreateResponsesSinglePage = operations_1.OperationBulkCreateResponsesSinglePage;
 APIGateway.Schemas = schemas_1.Schemas;
 APIGateway.UserSchemas = user_schemas_1.UserSchemas;
-APIGateway.PublicSchemasV4PagePaginationArray = user_schemas_1.PublicSchemasV4PagePaginationArray;
+APIGateway.OldPublicSchemasV4PagePaginationArray = user_schemas_1.OldPublicSchemasV4PagePaginationArray;
 APIGateway.ExpressionTemplate = expression_template_1.ExpressionTemplate;
 //# sourceMappingURL=api-gateway.js.map
 
@@ -39586,7 +41454,8 @@ exports.Configurations = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Configurations extends resource_1.APIResource {
     /**
-     * Set configuration properties
+     * Updates API Shield configuration settings for a zone. Can modify validation
+     * strictness, enforcement mode, and other global settings.
      *
      * @example
      * ```ts
@@ -39600,11 +41469,16 @@ class Configurations extends resource_1.APIResource {
      * ```
      */
     update(params, options) {
-        const { zone_id, ...body } = params;
-        return this._client.put(`/zones/${zone_id}/api_gateway/configuration`, { body, ...options });
+        const { zone_id, normalize, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/api_gateway/configuration`, {
+            query: { normalize },
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Retrieve information about specific configuration properties
+     * Gets the current API Shield configuration settings for a zone, including
+     * validation behavior and enforcement mode.
      *
      * @example
      * ```ts
@@ -39825,7 +41699,8 @@ exports.Fallthrough = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Fallthrough extends resource_1.APIResource {
     /**
-     * Generate fallthrough WAF expression template from a set of API hosts
+     * Creates an expression template fallthrough rule for API Shield. Used for
+     * configuring default behavior when no other expression templates match.
      *
      * @example
      * ```ts
@@ -39848,6 +41723,639 @@ class Fallthrough extends resource_1.APIResource {
 }
 exports.Fallthrough = Fallthrough;
 //# sourceMappingURL=fallthrough.js.map
+
+/***/ }),
+
+/***/ 8831:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.LabelListResponsesV4PagePaginationArray = exports.Labels = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ManagedAPI = __importStar(__nccwpck_require__(29049));
+const managed_1 = __nccwpck_require__(29049);
+const UserAPI = __importStar(__nccwpck_require__(58861));
+const user_1 = __nccwpck_require__(58861);
+const pagination_1 = __nccwpck_require__(30404);
+class Labels extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.user = new UserAPI.User(this._client);
+        this.managed = new ManagedAPI.Managed(this._client);
+    }
+    /**
+     * Retrieve all labels
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const labelListResponse of client.apiGateway.labels.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/labels`, LabelListResponsesV4PagePaginationArray, { query, ...options });
+    }
+}
+exports.Labels = Labels;
+class LabelListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.LabelListResponsesV4PagePaginationArray = LabelListResponsesV4PagePaginationArray;
+Labels.LabelListResponsesV4PagePaginationArray = LabelListResponsesV4PagePaginationArray;
+Labels.User = user_1.User;
+Labels.UserBulkCreateResponsesSinglePage = user_1.UserBulkCreateResponsesSinglePage;
+Labels.UserBulkDeleteResponsesSinglePage = user_1.UserBulkDeleteResponsesSinglePage;
+Labels.Managed = managed_1.Managed;
+//# sourceMappingURL=labels.js.map
+
+/***/ }),
+
+/***/ 29049:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Managed = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ResourcesAPI = __importStar(__nccwpck_require__(74087));
+const resources_1 = __nccwpck_require__(74087);
+class Managed extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.resources = new ResourcesAPI.Resources(this._client);
+    }
+    /**
+     * Retrieve managed label
+     *
+     * @example
+     * ```ts
+     * const managed = await client.apiGateway.labels.managed.get(
+     *   'login',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(name, params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.get(`/zones/${zone_id}/api_gateway/labels/managed/${name}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Managed = Managed;
+Managed.Resources = resources_1.Resources;
+//# sourceMappingURL=managed.js.map
+
+/***/ }),
+
+/***/ 51387:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Operation = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Operation extends resource_1.APIResource {
+    /**
+     * Replace all operations(s) attached to a managed label
+     *
+     * @example
+     * ```ts
+     * const operation =
+     *   await client.apiGateway.labels.managed.resources.operation.update(
+     *     'login',
+     *     {
+     *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       selector: {
+     *         include: {
+     *           operation_ids: [
+     *             'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *           ],
+     *         },
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    update(name, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/api_gateway/labels/managed/${name}/resources/operation`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Operation = Operation;
+//# sourceMappingURL=operation.js.map
+
+/***/ }),
+
+/***/ 74087:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Resources = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const OperationAPI = __importStar(__nccwpck_require__(51387));
+const operation_1 = __nccwpck_require__(51387);
+class Resources extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.operation = new OperationAPI.Operation(this._client);
+    }
+}
+exports.Resources = Resources;
+Resources.Operation = operation_1.Operation;
+//# sourceMappingURL=resources.js.map
+
+/***/ }),
+
+/***/ 92731:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Operation = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Operation extends resource_1.APIResource {
+    /**
+     * Replace all operations(s) attached to a user label
+     *
+     * @example
+     * ```ts
+     * const operation =
+     *   await client.apiGateway.labels.user.resources.operation.update(
+     *     'login',
+     *     {
+     *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       selector: {
+     *         include: {
+     *           operation_ids: [
+     *             'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *           ],
+     *         },
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    update(name, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/api_gateway/labels/user/${name}/resources/operation`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Operation = Operation;
+//# sourceMappingURL=operation.js.map
+
+/***/ }),
+
+/***/ 15431:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Resources = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const OperationAPI = __importStar(__nccwpck_require__(92731));
+const operation_1 = __nccwpck_require__(92731);
+class Resources extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.operation = new OperationAPI.Operation(this._client);
+    }
+}
+exports.Resources = Resources;
+Resources.Operation = operation_1.Operation;
+//# sourceMappingURL=resources.js.map
+
+/***/ }),
+
+/***/ 58861:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UserBulkDeleteResponsesSinglePage = exports.UserBulkCreateResponsesSinglePage = exports.User = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ResourcesAPI = __importStar(__nccwpck_require__(15431));
+const resources_1 = __nccwpck_require__(15431);
+const pagination_1 = __nccwpck_require__(30404);
+class User extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.resources = new ResourcesAPI.Resources(this._client);
+    }
+    /**
+     * Update all fields on a label
+     *
+     * @example
+     * ```ts
+     * const user = await client.apiGateway.labels.user.update(
+     *   'login',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    update(name, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/api_gateway/labels/user/${name}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Delete user label
+     *
+     * @example
+     * ```ts
+     * const user = await client.apiGateway.labels.user.delete(
+     *   'login',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(name, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/api_gateway/labels/user/${name}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Create user labels
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const userBulkCreateResponse of client.apiGateway.labels.user.bulkCreate(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     body: [{ name: 'login' }],
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkCreate(params, options) {
+        const { zone_id, body } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/labels/user`, UserBulkCreateResponsesSinglePage, { body: body, method: 'post', ...options });
+    }
+    /**
+     * Delete user labels
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const userBulkDeleteResponse of client.apiGateway.labels.user.bulkDelete(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkDelete(params, options) {
+        const { zone_id } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/labels/user`, UserBulkDeleteResponsesSinglePage, { method: 'delete', ...options });
+    }
+    /**
+     * Update certain fields on a label
+     *
+     * @example
+     * ```ts
+     * const response = await client.apiGateway.labels.user.edit(
+     *   'login',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    edit(name, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.patch(`/zones/${zone_id}/api_gateway/labels/user/${name}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve user label
+     *
+     * @example
+     * ```ts
+     * const user = await client.apiGateway.labels.user.get(
+     *   'login',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(name, params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.get(`/zones/${zone_id}/api_gateway/labels/user/${name}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.User = User;
+class UserBulkCreateResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.UserBulkCreateResponsesSinglePage = UserBulkCreateResponsesSinglePage;
+class UserBulkDeleteResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.UserBulkDeleteResponsesSinglePage = UserBulkDeleteResponsesSinglePage;
+User.UserBulkCreateResponsesSinglePage = UserBulkCreateResponsesSinglePage;
+User.UserBulkDeleteResponsesSinglePage = UserBulkDeleteResponsesSinglePage;
+User.Resources = resources_1.Resources;
+//# sourceMappingURL=user.js.map
+
+/***/ }),
+
+/***/ 93744:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.LabelBulkUpdateResponsesSinglePage = exports.LabelBulkDeleteResponsesSinglePage = exports.LabelBulkCreateResponsesSinglePage = exports.Labels = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Labels extends resource_1.APIResource {
+    /**
+     * Attach label(s) on an operation in endpoint management
+     *
+     * @example
+     * ```ts
+     * const label =
+     *   await client.apiGateway.operations.labels.create(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    create(operationId, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/api_gateway/operations/${operationId}/labels`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Replace label(s) on an operation in endpoint management
+     *
+     * @example
+     * ```ts
+     * const label =
+     *   await client.apiGateway.operations.labels.update(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    update(operationId, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/api_gateway/operations/${operationId}/labels`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Remove label(s) on an operation in endpoint management
+     *
+     * @example
+     * ```ts
+     * const label =
+     *   await client.apiGateway.operations.labels.delete(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(operationId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/api_gateway/operations/${operationId}/labels`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Bulk attach label(s) on operation(s) in endpoint management
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const labelBulkCreateResponse of client.apiGateway.operations.labels.bulkCreate(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     selector: {
+     *       include: {
+     *         operation_ids: [
+     *           'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *         ],
+     *       },
+     *     },
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkCreate(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/operations/labels`, LabelBulkCreateResponsesSinglePage, { body, method: 'post', ...options });
+    }
+    /**
+     * Bulk remove label(s) on operation(s) in endpoint management
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const labelBulkDeleteResponse of client.apiGateway.operations.labels.bulkDelete(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkDelete(params, options) {
+        const { zone_id } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/operations/labels`, LabelBulkDeleteResponsesSinglePage, { method: 'delete', ...options });
+    }
+    /**
+     * Bulk replace label(s) on operation(s) in endpoint management
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const labelBulkUpdateResponse of client.apiGateway.operations.labels.bulkUpdate(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     managed: { labels: ['login'] },
+     *     selector: {
+     *       include: {
+     *         operation_ids: [
+     *           'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *         ],
+     *       },
+     *     },
+     *     user: { labels: ['login'] },
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkUpdate(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/operations/labels`, LabelBulkUpdateResponsesSinglePage, { body, method: 'put', ...options });
+    }
+}
+exports.Labels = Labels;
+class LabelBulkCreateResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.LabelBulkCreateResponsesSinglePage = LabelBulkCreateResponsesSinglePage;
+class LabelBulkDeleteResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.LabelBulkDeleteResponsesSinglePage = LabelBulkDeleteResponsesSinglePage;
+class LabelBulkUpdateResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.LabelBulkUpdateResponsesSinglePage = LabelBulkUpdateResponsesSinglePage;
+Labels.LabelBulkCreateResponsesSinglePage = LabelBulkCreateResponsesSinglePage;
+Labels.LabelBulkDeleteResponsesSinglePage = LabelBulkDeleteResponsesSinglePage;
+Labels.LabelBulkUpdateResponsesSinglePage = LabelBulkUpdateResponsesSinglePage;
+//# sourceMappingURL=labels.js.map
 
 /***/ }),
 
@@ -39883,12 +42391,15 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OperationBulkCreateResponsesSinglePage = exports.OperationListResponsesV4PagePaginationArray = exports.Operations = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const LabelsAPI = __importStar(__nccwpck_require__(93744));
+const labels_1 = __nccwpck_require__(93744);
 const SchemaValidationAPI = __importStar(__nccwpck_require__(14982));
 const schema_validation_1 = __nccwpck_require__(14982);
 const pagination_1 = __nccwpck_require__(30404);
 class Operations extends resource_1.APIResource {
     constructor() {
         super(...arguments);
+        this.labels = new LabelsAPI.Labels(this._client);
         this.schemaValidation = new SchemaValidationAPI.SchemaValidation(this._client);
     }
     /**
@@ -39918,7 +42429,8 @@ class Operations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Retrieve information about all operations on a zone
+     * Lists all API operations tracked by API Shield for a zone with pagination.
+     * Returns operation details including method, path, and feature configurations.
      *
      * @example
      * ```ts
@@ -39935,7 +42447,8 @@ class Operations extends resource_1.APIResource {
         return this._client.getAPIList(`/zones/${zone_id}/api_gateway/operations`, OperationListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete an operation
+     * Removes a single API operation from API Shield endpoint management. The
+     * operation will no longer be tracked or protected by API Shield rules.
      *
      * @example
      * ```ts
@@ -39980,7 +42493,8 @@ class Operations extends resource_1.APIResource {
         return this._client.getAPIList(`/zones/${zone_id}/api_gateway/operations`, OperationBulkCreateResponsesSinglePage, { body: body, method: 'post', ...options });
     }
     /**
-     * Delete multiple operations
+     * Bulk removes multiple API operations from API Shield endpoint management in a
+     * single request. Efficient for cleaning up unused endpoints.
      *
      * @example
      * ```ts
@@ -39995,7 +42509,8 @@ class Operations extends resource_1.APIResource {
         return this._client.delete(`/zones/${zone_id}/api_gateway/operations`, options);
     }
     /**
-     * Retrieve information about an operation
+     * Gets detailed information about a specific API operation in API Shield,
+     * including its schema validation settings and traffic statistics.
      *
      * @example
      * ```ts
@@ -40022,6 +42537,10 @@ class OperationBulkCreateResponsesSinglePage extends pagination_1.SinglePage {
 exports.OperationBulkCreateResponsesSinglePage = OperationBulkCreateResponsesSinglePage;
 Operations.OperationListResponsesV4PagePaginationArray = OperationListResponsesV4PagePaginationArray;
 Operations.OperationBulkCreateResponsesSinglePage = OperationBulkCreateResponsesSinglePage;
+Operations.Labels = labels_1.Labels;
+Operations.LabelBulkCreateResponsesSinglePage = labels_1.LabelBulkCreateResponsesSinglePage;
+Operations.LabelBulkDeleteResponsesSinglePage = labels_1.LabelBulkDeleteResponsesSinglePage;
+Operations.LabelBulkUpdateResponsesSinglePage = labels_1.LabelBulkUpdateResponsesSinglePage;
 Operations.SchemaValidation = schema_validation_1.SchemaValidation;
 //# sourceMappingURL=operations.js.map
 
@@ -40036,6 +42555,9 @@ Operations.SchemaValidation = schema_validation_1.SchemaValidation;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.SchemaValidation = void 0;
 const resource_1 = __nccwpck_require__(59108);
+/**
+ * @deprecated Please use the [Schema Validation Operations Settings](https://developers.cloudflare.com/api/resources/schema_validation/subresources/settings/subresources/operations/) APIs instead
+ */
 class SchemaValidation extends resource_1.APIResource {
     /**
      * Updates operation-level schema validation settings on the zone
@@ -40186,6 +42708,9 @@ exports.Settings = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const SchemaValidationAPI = __importStar(__nccwpck_require__(60093));
 const schema_validation_1 = __nccwpck_require__(60093);
+/**
+ * @deprecated Please use the [Schema Validation Settings](https://developers.cloudflare.com/api/resources/schema_validation/subresources/settings/) APIs instead
+ */
 class Settings extends resource_1.APIResource {
     constructor() {
         super(...arguments);
@@ -40210,7 +42735,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Hosts extends resource_1.APIResource {
     /**
-     * Retrieve schema hosts in a zone
+     * Lists all unique hosts found in uploaded OpenAPI schemas for the zone. Useful
+     * for understanding which domains have schema coverage.
      *
      * @deprecated Use [Schema Validation API](https://developers.cloudflare.com/api/resources/schema_validation/) instead.
      */
@@ -40289,7 +42815,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.PublicSchemasV4PagePaginationArray = exports.UserSchemas = void 0;
+exports.OldPublicSchemasV4PagePaginationArray = exports.UserSchemas = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const Core = __importStar(__nccwpck_require__(75487));
 const HostsAPI = __importStar(__nccwpck_require__(40636));
@@ -40297,6 +42823,9 @@ const hosts_1 = __nccwpck_require__(40636);
 const OperationsAPI = __importStar(__nccwpck_require__(83213));
 const operations_1 = __nccwpck_require__(83213);
 const pagination_1 = __nccwpck_require__(30404);
+/**
+ * @deprecated Please use the [Schema Validation](https://developers.cloudflare.com/api/resources/schema_validation/) APIs instead
+ */
 class UserSchemas extends resource_1.APIResource {
     constructor() {
         super(...arguments);
@@ -40313,16 +42842,18 @@ class UserSchemas extends resource_1.APIResource {
         return this._client.post(`/zones/${zone_id}/api_gateway/user_schemas`, Core.multipartFormRequestOptions({ body, ...options }))._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Retrieve information about all schemas on a zone
+     * Lists all OpenAPI schemas uploaded to API Shield for the zone, including their
+     * validation status and associated operations.
      *
      * @deprecated Use [Schema Validation API](https://developers.cloudflare.com/api/resources/schema_validation/) instead.
      */
     list(params, options) {
         const { zone_id, ...query } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/user_schemas`, PublicSchemasV4PagePaginationArray, { query, ...options });
+        return this._client.getAPIList(`/zones/${zone_id}/api_gateway/user_schemas`, OldPublicSchemasV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a schema
+     * Permanently removes an uploaded OpenAPI schema from API Shield schema
+     * validation. Operations using this schema will lose their validation rules.
      *
      * @deprecated Use [Schema Validation API](https://developers.cloudflare.com/api/resources/schema_validation/) instead.
      */
@@ -40331,7 +42862,8 @@ class UserSchemas extends resource_1.APIResource {
         return this._client.delete(`/zones/${zone_id}/api_gateway/user_schemas/${schemaId}`, options);
     }
     /**
-     * Enable validation for a schema
+     * Activates schema validation for an uploaded OpenAPI schema. Requests to matching
+     * endpoints will be validated against the schema definitions.
      *
      * @deprecated Use [Schema Validation API](https://developers.cloudflare.com/api/resources/schema_validation/) instead.
      */
@@ -40343,7 +42875,8 @@ class UserSchemas extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Retrieve information about a specific schema on a zone
+     * Gets detailed information about a specific uploaded OpenAPI schema, including
+     * its contents and validation configuration.
      *
      * @deprecated Use [Schema Validation API](https://developers.cloudflare.com/api/resources/schema_validation/) instead.
      */
@@ -40356,10 +42889,10 @@ class UserSchemas extends resource_1.APIResource {
     }
 }
 exports.UserSchemas = UserSchemas;
-class PublicSchemasV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+class OldPublicSchemasV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
-exports.PublicSchemasV4PagePaginationArray = PublicSchemasV4PagePaginationArray;
-UserSchemas.PublicSchemasV4PagePaginationArray = PublicSchemasV4PagePaginationArray;
+exports.OldPublicSchemasV4PagePaginationArray = OldPublicSchemasV4PagePaginationArray;
+UserSchemas.OldPublicSchemasV4PagePaginationArray = OldPublicSchemasV4PagePaginationArray;
 UserSchemas.Operations = operations_1.Operations;
 UserSchemas.OperationListResponsesV4PagePaginationArray = operations_1.OperationListResponsesV4PagePaginationArray;
 UserSchemas.Hosts = hosts_1.Hosts;
@@ -40528,7 +43061,7 @@ exports.TieredCaching = TieredCaching;
 
 /***/ }),
 
-/***/ 21519:
+/***/ 28779:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -40554,6 +43087,20 @@ class AuditLogs extends resource_1.APIResource {
 }
 exports.AuditLogs = AuditLogs;
 //# sourceMappingURL=audit-logs.js.map
+
+/***/ }),
+
+/***/ 32552:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AuditLogs = void 0;
+var audit_logs_1 = __nccwpck_require__(28779);
+Object.defineProperty(exports, "AuditLogs", ({ enumerable: true, get: function () { return audit_logs_1.AuditLogs; } }));
+//# sourceMappingURL=index.js.map
 
 /***/ }),
 
@@ -40591,14 +43138,18 @@ exports.Billing = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const ProfilesAPI = __importStar(__nccwpck_require__(1892));
 const profiles_1 = __nccwpck_require__(1892);
+const UsageAPI = __importStar(__nccwpck_require__(75399));
+const usage_1 = __nccwpck_require__(75399);
 class Billing extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.profiles = new ProfilesAPI.Profiles(this._client);
+        this.usage = new UsageAPI.Usage(this._client);
     }
 }
 exports.Billing = Billing;
 Billing.Profiles = profiles_1.Profiles;
+Billing.Usage = usage_1.Usage;
 //# sourceMappingURL=billing.js.map
 
 /***/ }),
@@ -40628,7 +43179,36 @@ exports.Profiles = Profiles;
 
 /***/ }),
 
-/***/ 55729:
+/***/ 75399:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Usage = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Usage extends resource_1.APIResource {
+    /**
+     * Returns billable usage data for PayGo (self-serve) accounts. When no query
+     * parameters are provided, returns usage for the current billing period. This
+     * endpoint is currently in alpha and access is restricted to select accounts.
+     * While in alpha, the endpoint may get breaking changes.
+     */
+    paygo(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/billing/usage/paygo`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Usage = Usage;
+//# sourceMappingURL=usage.js.map
+
+/***/ }),
+
+/***/ 49907:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -40734,6 +43314,20 @@ class BotManagement extends resource_1.APIResource {
 }
 exports.BotManagement = BotManagement;
 //# sourceMappingURL=bot-management.js.map
+
+/***/ }),
+
+/***/ 2442:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.BotManagement = void 0;
+var bot_management_1 = __nccwpck_require__(49907);
+Object.defineProperty(exports, "BotManagement", ({ enumerable: true, get: function () { return bot_management_1.BotManagement; } }));
+//# sourceMappingURL=index.js.map
 
 /***/ }),
 
@@ -40939,6 +43533,8 @@ const MatchesAPI = __importStar(__nccwpck_require__(43243));
 const matches_1 = __nccwpck_require__(43243);
 const QueriesAPI = __importStar(__nccwpck_require__(65274));
 const queries_1 = __nccwpck_require__(65274);
+const V2API = __importStar(__nccwpck_require__(48771));
+const v2_1 = __nccwpck_require__(48771);
 const pagination_1 = __nccwpck_require__(30404);
 class BrandProtection extends resource_1.APIResource {
     constructor() {
@@ -40947,6 +43543,7 @@ class BrandProtection extends resource_1.APIResource {
         this.matches = new MatchesAPI.Matches(this._client);
         this.logos = new LogosAPI.Logos(this._client);
         this.logoMatches = new LogoMatchesAPI.LogoMatches(this._client);
+        this.v2 = new V2API.V2(this._client);
     }
     /**
      * Return new URL submissions
@@ -40972,6 +43569,7 @@ BrandProtection.Queries = queries_1.Queries;
 BrandProtection.Matches = matches_1.Matches;
 BrandProtection.Logos = logos_1.Logos;
 BrandProtection.LogoMatches = logo_matches_1.LogoMatches;
+BrandProtection.V2 = v2_1.V2;
 //# sourceMappingURL=brand-protection.js.map
 
 /***/ }),
@@ -41130,6 +43728,191 @@ exports.Queries = Queries;
 
 /***/ }),
 
+/***/ 96496:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.LogoMatches = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class LogoMatches extends resource_1.APIResource {
+    /**
+     * Get paginated list of logo matches for a specific brand protection logo query
+     */
+    get(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/v2/brand-protection/logo/matches`, {
+            query,
+            ...options,
+        });
+    }
+}
+exports.LogoMatches = LogoMatches;
+//# sourceMappingURL=logo-matches.js.map
+
+/***/ }),
+
+/***/ 50615:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Logos = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Logos extends resource_1.APIResource {
+    /**
+     * Create a new saved brand protection logo query for visual similarity matching
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/cloudforce-one/v2/brand-protection/logo/queries`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Delete a saved brand protection logo query. Returns 404 if the query ID doesn't
+     * exist.
+     */
+    delete(queryId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/cloudforce-one/v2/brand-protection/logo/queries/${queryId}`, options);
+    }
+    /**
+     * Get all saved brand protection logo queries for an account. Optionally specify
+     * id to get a single query. Set download=true to include base64-encoded image
+     * data.
+     */
+    get(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/v2/brand-protection/logo/queries`, {
+            query,
+            ...options,
+        });
+    }
+}
+exports.Logos = Logos;
+//# sourceMappingURL=logos.js.map
+
+/***/ }),
+
+/***/ 70882:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Matches = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Matches extends resource_1.APIResource {
+    /**
+     * Get paginated list of domain matches for one or more brand protection queries.
+     * When multiple query_ids are provided (comma-separated), matches are deduplicated
+     * across queries and each match includes a match_details array with per-match
+     * query metadata and individual dismissed state.
+     */
+    get(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/v2/brand-protection/domain/matches`, {
+            query,
+            ...options,
+        });
+    }
+}
+exports.Matches = Matches;
+//# sourceMappingURL=matches.js.map
+
+/***/ }),
+
+/***/ 13347:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Queries = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Queries extends resource_1.APIResource {
+    /**
+     * Get all saved brand protection queries for an account
+     */
+    get(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/v2/brand-protection/domain/queries`, {
+            query,
+            ...options,
+        });
+    }
+}
+exports.Queries = Queries;
+//# sourceMappingURL=queries.js.map
+
+/***/ }),
+
+/***/ 48771:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.V2 = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const LogoMatchesAPI = __importStar(__nccwpck_require__(96496));
+const logo_matches_1 = __nccwpck_require__(96496);
+const LogosAPI = __importStar(__nccwpck_require__(50615));
+const logos_1 = __nccwpck_require__(50615);
+const MatchesAPI = __importStar(__nccwpck_require__(70882));
+const matches_1 = __nccwpck_require__(70882);
+const QueriesAPI = __importStar(__nccwpck_require__(13347));
+const queries_1 = __nccwpck_require__(13347);
+class V2 extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.queries = new QueriesAPI.Queries(this._client);
+        this.matches = new MatchesAPI.Matches(this._client);
+        this.logos = new LogosAPI.Logos(this._client);
+        this.logoMatches = new LogoMatchesAPI.LogoMatches(this._client);
+    }
+}
+exports.V2 = V2;
+V2.Queries = queries_1.Queries;
+V2.Matches = matches_1.Matches;
+V2.Logos = logos_1.Logos;
+V2.LogoMatches = logo_matches_1.LogoMatches;
+//# sourceMappingURL=v2.js.map
+
+/***/ }),
+
 /***/ 20783:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -41164,6 +43947,8 @@ exports.BrowserRendering = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const ContentAPI = __importStar(__nccwpck_require__(63703));
 const content_1 = __nccwpck_require__(63703);
+const CrawlAPI = __importStar(__nccwpck_require__(84565));
+const crawl_1 = __nccwpck_require__(84565);
 const JsonAPI = __importStar(__nccwpck_require__(26358));
 const json_1 = __nccwpck_require__(26358);
 const LinksAPI = __importStar(__nccwpck_require__(25743));
@@ -41178,6 +43963,8 @@ const ScreenshotAPI = __importStar(__nccwpck_require__(15048));
 const screenshot_1 = __nccwpck_require__(15048);
 const SnapshotAPI = __importStar(__nccwpck_require__(51972));
 const snapshot_1 = __nccwpck_require__(51972);
+const DevtoolsAPI = __importStar(__nccwpck_require__(44007));
+const devtools_1 = __nccwpck_require__(44007);
 class BrowserRendering extends resource_1.APIResource {
     constructor() {
         super(...arguments);
@@ -41189,6 +43976,8 @@ class BrowserRendering extends resource_1.APIResource {
         this.json = new JsonAPI.Json(this._client);
         this.links = new LinksAPI.Links(this._client);
         this.markdown = new MarkdownAPI.Markdown(this._client);
+        this.crawl = new CrawlAPI.Crawl(this._client);
+        this.devtools = new DevtoolsAPI.Devtools(this._client);
     }
 }
 exports.BrowserRendering = BrowserRendering;
@@ -41200,6 +43989,8 @@ BrowserRendering.Snapshot = snapshot_1.Snapshot;
 BrowserRendering.Json = json_1.Json;
 BrowserRendering.Links = links_1.Links;
 BrowserRendering.Markdown = markdown_1.Markdown;
+BrowserRendering.Crawl = crawl_1.Crawl;
+BrowserRendering.Devtools = devtools_1.Devtools;
 //# sourceMappingURL=browser-rendering.js.map
 
 /***/ }),
@@ -41217,6 +44008,15 @@ class Content extends resource_1.APIResource {
     /**
      * Fetches rendered HTML content from provided URL or HTML. Check available options
      * like `gotoOptions` and `waitFor*` to control page load behaviour.
+     *
+     * @example
+     * ```ts
+     * const content =
+     *   await client.browserRendering.content.create({
+     *     account_id: 'account_id',
+     *     url: 'https://www.example.com/',
+     *   });
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41229,6 +44029,462 @@ class Content extends resource_1.APIResource {
 }
 exports.Content = Content;
 //# sourceMappingURL=content.js.map
+
+/***/ }),
+
+/***/ 84565:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Crawl = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Crawl extends resource_1.APIResource {
+    /**
+     * Starts a crawl job for the provided URL and its children. Check available
+     * options like `gotoOptions` and `waitFor*` to control page load behaviour.
+     *
+     * @example
+     * ```ts
+     * const crawl = await client.browserRendering.crawl.create({
+     *   account_id: 'account_id',
+     *   url: 'https://example.com',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, cacheTTL, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/browser-rendering/crawl`, {
+            query: { cacheTTL },
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Cancels an ongoing crawl job by setting its status to cancelled and stopping all
+     * queued URLs.
+     *
+     * @example
+     * ```ts
+     * const crawl = await client.browserRendering.crawl.delete(
+     *   'job_id',
+     *   { account_id: 'account_id' },
+     * );
+     * ```
+     */
+    delete(jobId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/browser-rendering/crawl/${jobId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns the result of a crawl job.
+     *
+     * @example
+     * ```ts
+     * const crawl = await client.browserRendering.crawl.get('x', {
+     *   account_id: 'account_id',
+     * });
+     * ```
+     */
+    get(jobId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/crawl/${jobId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Crawl = Crawl;
+//# sourceMappingURL=crawl.js.map
+
+/***/ }),
+
+/***/ 98594:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Browser = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const PageAPI = __importStar(__nccwpck_require__(7175));
+const page_1 = __nccwpck_require__(7175);
+const TargetsAPI = __importStar(__nccwpck_require__(12404));
+const targets_1 = __nccwpck_require__(12404);
+class Browser extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.page = new PageAPI.Page(this._client);
+        this.targets = new TargetsAPI.Targets(this._client);
+    }
+    /**
+     * Get a browser session ID.
+     *
+     * @example
+     * ```ts
+     * const browser =
+     *   await client.browserRendering.devtools.browser.create({
+     *     account_id: 'account_id',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, keep_alive, lab, recording, targets } = params;
+        return this._client.post(`/accounts/${account_id}/browser-rendering/devtools/browser`, {
+            query: { keep_alive, lab, recording, targets },
+            ...options,
+        });
+    }
+    /**
+     * Closes an existing browser session.
+     *
+     * @example
+     * ```ts
+     * const browser =
+     *   await client.browserRendering.devtools.browser.delete(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    delete(sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}`, options);
+    }
+    /**
+     * Establishes a WebSocket connection to an existing browser session.
+     *
+     * @example
+     * ```ts
+     * await client.browserRendering.devtools.browser.connect(
+     *   '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *   { account_id: 'account_id' },
+     * );
+     * ```
+     */
+    connect(sessionId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}`, {
+            query,
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    /**
+     * Acquires and establishes a WebSocket connection to a browser session.
+     *
+     * @example
+     * ```ts
+     * await client.browserRendering.devtools.browser.launch({
+     *   account_id: 'account_id',
+     * });
+     * ```
+     */
+    launch(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser`, {
+            query,
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    /**
+     * Returns the complete Chrome DevTools Protocol schema including all domains,
+     * commands, events, and types. This schema describes the entire CDP API surface.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.browserRendering.devtools.browser.protocol(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    protocol(sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/protocol`, options);
+    }
+    /**
+     * Get browser version metadata.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.browserRendering.devtools.browser.version(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    version(sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/version`, options);
+    }
+}
+exports.Browser = Browser;
+Browser.Page = page_1.Page;
+Browser.Targets = targets_1.Targets;
+//# sourceMappingURL=browser.js.map
+
+/***/ }),
+
+/***/ 7175:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Page = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Page extends resource_1.APIResource {
+    /**
+     * Establishes a WebSocket connection to a specific Chrome DevTools target or page.
+     *
+     * @example
+     * ```ts
+     * await client.browserRendering.devtools.browser.page.get(
+     *   '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *   'target_id',
+     *   { account_id: 'account_id' },
+     * );
+     * ```
+     */
+    get(sessionId, targetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/page/${targetId}`, { ...options, headers: { Accept: '*/*', ...options?.headers } });
+    }
+}
+exports.Page = Page;
+//# sourceMappingURL=page.js.map
+
+/***/ }),
+
+/***/ 12404:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Targets = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Targets extends resource_1.APIResource {
+    /**
+     * Opens a new tab in the browser. Optionally specify a URL to navigate to.
+     *
+     * @example
+     * ```ts
+     * const target =
+     *   await client.browserRendering.devtools.browser.targets.create(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    create(sessionId, params, options) {
+        const { account_id, url } = params;
+        return this._client.put(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/new`, { query: { url }, ...options });
+    }
+    /**
+     * Returns a list of all debuggable targets including tabs, pages, service workers,
+     * and other browser contexts.
+     *
+     * @example
+     * ```ts
+     * const targets =
+     *   await client.browserRendering.devtools.browser.targets.list(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    list(sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/list`, options);
+    }
+    /**
+     * Activates (brings to front) a specific browser target by its ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.browserRendering.devtools.browser.targets.activate(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'target_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    activate(sessionId, targetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/activate/${targetId}`, options);
+    }
+    /**
+     * Closes a specific browser target (tab, page, etc.) by its ID. Returns 'Target is
+     * closing' on success or an error if the target is not found.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.browserRendering.devtools.browser.targets.close(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'target_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    close(sessionId, targetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/close/${targetId}`, options);
+    }
+    /**
+     * Returns the debuggable target with the given ID.
+     *
+     * @example
+     * ```ts
+     * const target =
+     *   await client.browserRendering.devtools.browser.targets.get(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'target_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    get(sessionId, targetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/browser/${sessionId}/json/list/${targetId}`, options);
+    }
+}
+exports.Targets = Targets;
+//# sourceMappingURL=targets.js.map
+
+/***/ }),
+
+/***/ 44007:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Devtools = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const SessionAPI = __importStar(__nccwpck_require__(10729));
+const session_1 = __nccwpck_require__(10729);
+const BrowserAPI = __importStar(__nccwpck_require__(98594));
+const browser_1 = __nccwpck_require__(98594);
+class Devtools extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.session = new SessionAPI.Session(this._client);
+        this.browser = new BrowserAPI.Browser(this._client);
+    }
+}
+exports.Devtools = Devtools;
+Devtools.Session = session_1.Session;
+Devtools.Browser = browser_1.Browser;
+//# sourceMappingURL=devtools.js.map
+
+/***/ }),
+
+/***/ 10729:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Session = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Session extends resource_1.APIResource {
+    /**
+     * List active browser sessions.
+     *
+     * @example
+     * ```ts
+     * const sessions =
+     *   await client.browserRendering.devtools.session.list({
+     *     account_id: 'account_id',
+     *   });
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/session`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Get details for a specific browser session.
+     *
+     * @example
+     * ```ts
+     * const session =
+     *   await client.browserRendering.devtools.session.get(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    get(sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/browser-rendering/devtools/session/${sessionId}`, options);
+    }
+}
+exports.Session = Session;
+//# sourceMappingURL=session.js.map
 
 /***/ }),
 
@@ -41245,6 +44501,14 @@ class Json extends resource_1.APIResource {
     /**
      * Gets json from a webpage from a provided URL or HTML. Pass `prompt` or `schema`
      * in the body. Control page loading with `gotoOptions` and `waitFor*` options.
+     *
+     * @example
+     * ```ts
+     * const json = await client.browserRendering.json.create({
+     *   account_id: 'account_id',
+     *   html: '<h1>Hello World!</h1>',
+     * });
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41272,6 +44536,14 @@ const resource_1 = __nccwpck_require__(59108);
 class Links extends resource_1.APIResource {
     /**
      * Get links from a web page.
+     *
+     * @example
+     * ```ts
+     * const links = await client.browserRendering.links.create({
+     *   account_id: 'account_id',
+     *   html: '<h1>Hello World!</h1>',
+     * });
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41300,6 +44572,15 @@ class Markdown extends resource_1.APIResource {
     /**
      * Gets markdown of a webpage from provided URL or HTML. Control page loading with
      * `gotoOptions` and `waitFor*` options.
+     *
+     * @example
+     * ```ts
+     * const markdown =
+     *   await client.browserRendering.markdown.create({
+     *     account_id: 'account_id',
+     *     url: 'https://www.example.com/',
+     *   });
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41328,6 +44609,17 @@ class PDF extends resource_1.APIResource {
     /**
      * Fetches rendered PDF from provided URL or HTML. Check available options like
      * `gotoOptions` and `waitFor*` to control page load behaviour.
+     *
+     * @example
+     * ```ts
+     * const pdf = await client.browserRendering.pdf.create({
+     *   account_id: 'account_id',
+     *   html: '<h1>Hello World!</h1>',
+     * });
+     *
+     * const content = await pdf.blob();
+     * console.log(content);
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41357,6 +44649,17 @@ const resource_1 = __nccwpck_require__(59108);
 class Scrape extends resource_1.APIResource {
     /**
      * Get meta attributes like height, width, text and others of selected elements.
+     *
+     * @example
+     * ```ts
+     * const scrapes = await client.browserRendering.scrape.create(
+     *   {
+     *     account_id: 'account_id',
+     *     elements: [{ selector: 'h1' }],
+     *     html: '<h1>Hello World!</h1>',
+     *   },
+     * );
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41386,6 +44689,15 @@ class Screenshot extends resource_1.APIResource {
      * Takes a screenshot of a webpage from provided URL or HTML. Control page loading
      * with `gotoOptions` and `waitFor*` options. Customize screenshots with
      * `viewport`, `fullPage`, `clip` and others.
+     *
+     * @example
+     * ```ts
+     * const screenshot =
+     *   await client.browserRendering.screenshot.create({
+     *     account_id: 'account_id',
+     *     html: '<h1>Hello World!</h1>',
+     *   });
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41415,6 +44727,15 @@ class Snapshot extends resource_1.APIResource {
      * Returns the page's HTML content and screenshot. Control page loading with
      * `gotoOptions` and `waitFor*` options. Customize screenshots with `viewport`,
      * `fullPage`, `clip` and others.
+     *
+     * @example
+     * ```ts
+     * const snapshot =
+     *   await client.browserRendering.snapshot.create({
+     *     account_id: 'account_id',
+     *     html: '<h1>Hello World!</h1>',
+     *   });
+     * ```
      */
     create(params, options) {
         const { account_id, cacheTTL, ...body } = params;
@@ -41557,6 +44878,8 @@ exports.Cache = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const CacheReserveAPI = __importStar(__nccwpck_require__(30394));
 const cache_reserve_1 = __nccwpck_require__(30394);
+const OriginCloudRegionsAPI = __importStar(__nccwpck_require__(28859));
+const origin_cloud_regions_1 = __nccwpck_require__(28859);
 const RegionalTieredCacheAPI = __importStar(__nccwpck_require__(80391));
 const regional_tiered_cache_1 = __nccwpck_require__(80391);
 const SmartTieredCacheAPI = __importStar(__nccwpck_require__(11459));
@@ -41570,6 +44893,7 @@ class Cache extends resource_1.APIResource {
         this.smartTieredCache = new SmartTieredCacheAPI.SmartTieredCache(this._client);
         this.variants = new VariantsAPI.Variants(this._client);
         this.regionalTieredCache = new RegionalTieredCacheAPI.RegionalTieredCacheResource(this._client);
+        this.originCloudRegions = new OriginCloudRegionsAPI.OriginCloudRegions(this._client);
     }
     /**
      * ### Purge All Cached Content
@@ -41651,7 +44975,200 @@ Cache.CacheReserveResource = cache_reserve_1.CacheReserveResource;
 Cache.SmartTieredCache = smart_tiered_cache_1.SmartTieredCache;
 Cache.Variants = variants_1.Variants;
 Cache.RegionalTieredCacheResource = regional_tiered_cache_1.RegionalTieredCacheResource;
+Cache.OriginCloudRegions = origin_cloud_regions_1.OriginCloudRegions;
 //# sourceMappingURL=cache.js.map
+
+/***/ }),
+
+/***/ 28859:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OriginCloudRegions = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class OriginCloudRegions extends resource_1.APIResource {
+    /**
+     * Adds a single IP-to-cloud-region mapping for the zone. The IP must be a valid
+     * IPv4 or IPv6 address and is normalized to canonical form before storage (RFC
+     * 5952 for IPv6). Returns 400 (code 1145) if a mapping for that IP already exists
+     * — use PATCH to update an existing entry. The vendor and region are validated
+     * against the list from
+     * `GET /zones/{zone_id}/cache/origin_cloud_regions/supported_regions`.
+     *
+     * @example
+     * ```ts
+     * const originCloudRegion =
+     *   await client.cache.originCloudRegions.create({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     ip: '192.0.2.1',
+     *     region: 'us-east-1',
+     *     vendor: 'aws',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/cache/origin_cloud_regions`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns all IP-to-cloud-region mappings configured for the zone. Each mapping
+     * tells Cloudflare which cloud vendor and region hosts the origin at that IP,
+     * enabling the edge to route via the nearest Tiered Cache upper-tier co-located
+     * with that cloud provider. Returns an empty array when no mappings exist.
+     *
+     * @example
+     * ```ts
+     * const originCloudRegions =
+     *   await client.cache.originCloudRegions.list({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    list(params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/cache/origin_cloud_regions`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Removes the cloud region mapping for a single origin IP address. The IP path
+     * parameter is normalized before lookup. Returns the deleted entry on success.
+     * Returns 404 (code 1163) if no mapping exists for the specified IP. When the last
+     * mapping for the zone is removed the underlying rule record is also deleted.
+     *
+     * @example
+     * ```ts
+     * const originCloudRegion =
+     *   await client.cache.originCloudRegions.delete(
+     *     '192.0.2.1',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(originIP, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/cache/origin_cloud_regions/${originIP}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Removes up to 100 IP-to-cloud-region mappings in a single request. Each IP is
+     * validated independently — successfully deleted items are returned in the
+     * `succeeded` array and IPs that could not be found or are invalid are returned in
+     * the `failed` array.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.cache.originCloudRegions.bulkDelete({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    bulkDelete(params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/cache/origin_cloud_regions/batch`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Adds or updates up to 100 IP-to-cloud-region mappings in a single request. Each
+     * item is validated independently — valid items are applied and invalid items are
+     * returned in the `failed` array. The vendor and region for every item are
+     * validated against the list from
+     * `GET /zones/{zone_id}/cache/origin_cloud_regions/supported_regions`.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.cache.originCloudRegions.bulkEdit({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     body: [
+     *       {
+     *         ip: '192.0.2.1',
+     *         region: 'us-east-1',
+     *         vendor: 'aws',
+     *       },
+     *       {
+     *         ip: '2001:db8::1',
+     *         region: 'us-central1',
+     *         vendor: 'gcp',
+     *       },
+     *     ],
+     *   });
+     * ```
+     */
+    bulkEdit(params, options) {
+        const { zone_id, body } = params;
+        return this._client.patch(`/zones/${zone_id}/cache/origin_cloud_regions/batch`, {
+            body: body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Adds or updates a single IP-to-cloud-region mapping for the zone. Unlike POST,
+     * this operation is idempotent — if a mapping for the IP already exists it is
+     * overwritten. Returns the complete updated list of all mappings for the zone.
+     * Returns 403 (code 1164) when the zone has reached the limit of 3,500 IP
+     * mappings.
+     *
+     * @example
+     * ```ts
+     * const response = await client.cache.originCloudRegions.edit(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     ip: '2001:db8::1',
+     *     region: 'us-central1',
+     *     vendor: 'gcp',
+     *   },
+     * );
+     * ```
+     */
+    edit(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.patch(`/zones/${zone_id}/cache/origin_cloud_regions`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns the cloud region mapping for a single origin IP address. The IP path
+     * parameter is normalized before lookup (RFC 5952 for IPv6). Returns 404
+     * (code 1142) if the zone has no mappings or if the specified IP has no mapping.
+     *
+     * @example
+     * ```ts
+     * const originCloudRegion =
+     *   await client.cache.originCloudRegions.get('192.0.2.1', {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    get(originIP, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/cache/origin_cloud_regions/${originIP}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns the cloud vendors and regions that are valid values for origin cloud
+     * region mappings. Each region includes the Tiered Cache upper-tier colocation
+     * codes that will be used for cache routing when a mapping targeting that region
+     * is active. Requires the zone to have Tiered Cache enabled.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.cache.originCloudRegions.supportedRegions({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    supportedRegions(params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/cache/origin_cloud_regions/supported_regions`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.OriginCloudRegions = OriginCloudRegions;
+//# sourceMappingURL=origin-cloud-regions.js.map
 
 /***/ }),
 
@@ -42194,7 +45711,7 @@ exports.HostnameAssociations = HostnameAssociations;
 
 /***/ }),
 
-/***/ 36186:
+/***/ 41671:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -42213,7 +45730,7 @@ class ClientCertificates extends resource_1.APIResource {
      * const clientCertificate =
      *   await client.clientCertificates.create({
      *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     csr: '-----BEGIN CERTIFICATE REQUEST-----\\nMIICY....\\n-----END CERTIFICATE REQUEST-----\\n',
+     *     csr: '-----BEGIN CERTIFICATE REQUEST-----\nMIICY....\n-----END CERTIFICATE REQUEST-----',
      *     validity_days: 3650,
      *   });
      * ```
@@ -42271,8 +45788,11 @@ class ClientCertificates extends resource_1.APIResource {
      * ```
      */
     edit(clientCertificateId, params, options) {
-        const { zone_id } = params;
-        return this._client.patch(`/zones/${zone_id}/client_certificates/${clientCertificateId}`, options)._thenUnwrap((obj) => obj.result);
+        const { zone_id, ...body } = params;
+        return this._client.patch(`/zones/${zone_id}/client_certificates/${clientCertificateId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Get Details for a single mTLS API Shield Client Certificate
@@ -42297,6 +45817,20 @@ class ClientCertificatesV4PagePaginationArray extends pagination_1.V4PagePaginat
 exports.ClientCertificatesV4PagePaginationArray = ClientCertificatesV4PagePaginationArray;
 ClientCertificates.ClientCertificatesV4PagePaginationArray = ClientCertificatesV4PagePaginationArray;
 //# sourceMappingURL=client-certificates.js.map
+
+/***/ }),
+
+/***/ 68057:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ClientCertificates = void 0;
+var client_certificates_1 = __nccwpck_require__(41671);
+Object.defineProperty(exports, "ClientCertificates", ({ enumerable: true, get: function () { return client_certificates_1.ClientCertificates; } }));
+//# sourceMappingURL=index.js.map
 
 /***/ }),
 
@@ -42536,7 +46070,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Assets extends resource_1.APIResource {
     /**
-     * List Request Assets
+     * Lists assets attached to a Cloudforce One intelligence request.
      *
      * @example
      * ```ts
@@ -42558,7 +46092,7 @@ class Assets extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/cloudforce-one/requests/${requestId}/asset`, AssetCreateResponsesSinglePage, { body, method: 'post', ...options });
     }
     /**
-     * Update a Request Asset
+     * Updates an asset in a Cloudforce One intelligence request.
      *
      * @example
      * ```ts
@@ -42578,7 +46112,7 @@ class Assets extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Delete a Request Asset
+     * Removes an asset from a Cloudforce One intelligence request.
      *
      * @example
      * ```ts
@@ -42595,7 +46129,7 @@ class Assets extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/cloudforce-one/requests/${requestId}/asset/${assetId}`, options);
     }
     /**
-     * Get a Request Asset
+     * Retrieves an asset attached to a Cloudforce One intelligence request.
      *
      * @example
      * ```ts
@@ -42639,7 +46173,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class MessageResource extends resource_1.APIResource {
     /**
-     * Create a New Request Message
+     * Adds a message to a Cloudforce One intelligence request conversation.
      *
      * @example
      * ```ts
@@ -42658,7 +46192,7 @@ class MessageResource extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update a Request Message
+     * Updates a message in a Cloudforce One intelligence request thread.
      *
      * @example
      * ```ts
@@ -42678,7 +46212,7 @@ class MessageResource extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Delete a Request Message
+     * Removes a message from a Cloudforce One intelligence request thread.
      *
      * @example
      * ```ts
@@ -42695,7 +46229,7 @@ class MessageResource extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/cloudforce-one/requests/${requestId}/message/${messageId}`, options);
     }
     /**
-     * List Request Messages
+     * Lists messages in a Cloudforce One intelligence request conversation.
      *
      * @example
      * ```ts
@@ -42737,7 +46271,7 @@ exports.PriorityResource = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class PriorityResource extends resource_1.APIResource {
     /**
-     * Create a New Priority Intelligence Requirement
+     * Creates a new priority intelligence request in Cloudforce One.
      *
      * @example
      * ```ts
@@ -42759,7 +46293,7 @@ class PriorityResource extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update a Priority Intelligence Requirement
+     * Updates a priority intelligence request in Cloudforce One.
      *
      * @example
      * ```ts
@@ -42784,7 +46318,7 @@ class PriorityResource extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Delete a Priority Intelligence Requirement
+     * Deletes a priority intelligence request from Cloudforce One.
      *
      * @example
      * ```ts
@@ -42800,7 +46334,7 @@ class PriorityResource extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/cloudforce-one/requests/priority/${priorityId}`, options);
     }
     /**
-     * Get a Priority Intelligence Requirement
+     * Retrieves a specific priority intelligence request from Cloudforce One.
      *
      * @example
      * ```ts
@@ -42816,7 +46350,7 @@ class PriorityResource extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/cloudforce-one/requests/priority/${priorityId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Priority Intelligence Requirement Quota
+     * Retrieves quota usage for Cloudforce One priority requests.
      *
      * @example
      * ```ts
@@ -42922,7 +46456,7 @@ class Requests extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Requests
+     * Lists Cloudforce One intelligence requests with filtering and pagination.
      *
      * @example
      * ```ts
@@ -42947,7 +46481,7 @@ class Requests extends resource_1.APIResource {
         });
     }
     /**
-     * Delete a Request
+     * Deletes a Cloudforce One intelligence request and all associated data.
      *
      * @example
      * ```ts
@@ -42962,7 +46496,8 @@ class Requests extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/cloudforce-one/requests/${requestId}`, options);
     }
     /**
-     * Get Request Priority, Status, and TLP constants
+     * Retrieves constant values used in Cloudforce One requests, including valid
+     * statuses and types.
      *
      * @example
      * ```ts
@@ -42977,7 +46512,7 @@ class Requests extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/cloudforce-one/requests/constants`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get a Request
+     * Retrieves details for a specific Cloudforce One intelligence request.
      *
      * @example
      * ```ts
@@ -42992,7 +46527,7 @@ class Requests extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/cloudforce-one/requests/${requestId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Request Quota
+     * Retrieves quota usage for Cloudforce One standard requests.
      *
      * @example
      * ```ts
@@ -43006,7 +46541,7 @@ class Requests extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/cloudforce-one/requests/quota`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Request Types
+     * Lists available request types for Cloudforce One intelligence requests.
      *
      * @example
      * ```ts
@@ -43227,7 +46762,7 @@ exports.Attackers = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Attackers extends resource_1.APIResource {
     /**
-     * Lists attackers
+     * Lists attackers across multiple datasets
      *
      * @example
      * ```ts
@@ -43238,8 +46773,8 @@ class Attackers extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/attackers`, options);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/attackers`, { query, ...options });
     }
 }
 exports.Attackers = Attackers;
@@ -43280,7 +46815,7 @@ class Categories extends resource_1.APIResource {
         });
     }
     /**
-     * Lists categories
+     * Lists categories across multiple datasets
      *
      * @example
      * ```ts
@@ -43291,8 +46826,11 @@ class Categories extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/categories`, options);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/categories`, {
+            query,
+            ...options,
+        });
     }
     /**
      * Deletes a category
@@ -43480,7 +47018,11 @@ class Datasets extends resource_1.APIResource {
      * const response =
      *   await client.cloudforceOne.threatEvents.datasets.edit(
      *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
-     *     { account_id: 'account_id', isPublic: true, name: 'x' },
+     *     {
+     *       account_id: 'account_id',
+     *       isPublic: true,
+     *       name: 'x',
+     *     },
      *   );
      * ```
      */
@@ -43508,7 +47050,8 @@ class Datasets extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/cloudforce-one/events/dataset/${datasetId}`, options);
     }
     /**
-     * Reads data for a raw event
+     * Retrieves the raw data associated with an event. Searches across all shards in
+     * the dataset.
      *
      * @example
      * ```ts
@@ -43609,15 +47152,10 @@ exports.IndicatorTypes = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class IndicatorTypes extends resource_1.APIResource {
     /**
-     * Lists all indicator types
+     * This Method is deprecated. Please use /events/dataset/:dataset_id/indicatorTypes
+     * instead.
      *
-     * @example
-     * ```ts
-     * const indicatorTypes =
-     *   await client.cloudforceOne.threatEvents.indicatorTypes.list(
-     *     { account_id: 'account_id' },
-     *   );
-     * ```
+     * @deprecated
      */
     list(params, options) {
         const { account_id } = params;
@@ -43775,7 +47313,7 @@ exports.TargetIndustries = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class TargetIndustries extends resource_1.APIResource {
     /**
-     * Lists all target industries
+     * Lists target industries across multiple datasets
      *
      * @example
      * ```ts
@@ -43786,8 +47324,11 @@ class TargetIndustries extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/targetIndustries`, options);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/cloudforce-one/events/targetIndustries`, {
+            query,
+            ...options,
+        });
     }
 }
 exports.TargetIndustries = TargetIndustries;
@@ -43881,7 +47422,6 @@ class ThreatEvents extends resource_1.APIResource {
      *     category: 'Domain Resolution',
      *     date: '2022-04-01T00:00:00Z',
      *     event: 'An attacker registered the domain domain.com',
-     *     indicatorType: 'domain',
      *     raw: { data: { foo: 'bar' } },
      *     tlp: 'amber',
      *   });
@@ -43892,11 +47432,11 @@ class ThreatEvents extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/cloudforce-one/events/create`, { body, ...options });
     }
     /**
-     * When `datasetId` is unspecified, events will be listed from the
-     * `Cloudforce One Threat Events` dataset. To list existing datasets (and their
-     * IDs), use the
+     * Use `datasetId=all` or `datasetId=*` to query all event datasets for the account
+     * (limited to 10). When `datasetId` is unspecified, events are listed from the
+     * default Cloudforce One Threat Events dataset. To list existing datasets, use the
      * [`List Datasets`](https://developers.cloudflare.com/api/resources/cloudforce_one/subresources/threat_events/subresources/datasets/methods/list/)
-     * endpoint). Also, must provide query parameters.
+     * endpoint.
      *
      * @example
      * ```ts
@@ -43918,25 +47458,6 @@ class ThreatEvents extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const threatEvent =
-     *   await client.cloudforceOne.threatEvents.delete(
-     *     'event_id',
-     *     { account_id: 'account_id' },
-     *   );
-     * ```
-     */
-    delete(eventId, params, options) {
-        const { account_id } = params;
-        return this._client.delete(`/accounts/${account_id}/cloudforce-one/events/${eventId}`, options);
-    }
-    /**
-     * The `datasetId` parameter must be defined. To list existing datasets (and their
-     * IDs) in your account, use the
-     * [`List Datasets`](https://developers.cloudflare.com/api/resources/cloudforce_one/subresources/threat_events/subresources/datasets/methods/list/)
-     * endpoint.
-     *
-     * @example
-     * ```ts
      * const response =
      *   await client.cloudforceOne.threatEvents.bulkCreate({
      *     account_id: 'account_id',
@@ -43946,7 +47467,6 @@ class ThreatEvents extends resource_1.APIResource {
      *         date: '2022-04-01T00:00:00Z',
      *         event:
      *           'An attacker registered the domain domain.com',
-     *         indicatorType: 'domain',
      *         raw: { data: { foo: 'bar' } },
      *         tlp: 'amber',
      *       },
@@ -43970,6 +47490,7 @@ class ThreatEvents extends resource_1.APIResource {
      * const response =
      *   await client.cloudforceOne.threatEvents.edit('event_id', {
      *     account_id: 'account_id',
+     *     datasetId: '9b769969-a211-466c-8ac3-cb91266a066a',
      *   });
      * ```
      */
@@ -43981,15 +47502,10 @@ class ThreatEvents extends resource_1.APIResource {
         });
     }
     /**
-     * Reads an event
+     * This Method is deprecated. Please use
+     * /events/dataset/:dataset_id/events/:event_id instead.
      *
-     * @example
-     * ```ts
-     * const threatEvent =
-     *   await client.cloudforceOne.threatEvents.get('event_id', {
-     *     account_id: 'account_id',
-     *   });
-     * ```
+     * @deprecated
      */
     get(eventId, params, options) {
         const { account_id } = params;
@@ -44010,6 +47526,226 @@ ThreatEvents.EventTags = event_tags_1.EventTags;
 ThreatEvents.TargetIndustries = target_industries_1.TargetIndustries;
 ThreatEvents.Insights = insights_1.Insights;
 //# sourceMappingURL=threat-events.js.map
+
+/***/ }),
+
+/***/ 78423:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Connectivity = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const DirectoryAPI = __importStar(__nccwpck_require__(31337));
+const directory_1 = __nccwpck_require__(31337);
+class Connectivity extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.directory = new DirectoryAPI.Directory(this._client);
+    }
+}
+exports.Connectivity = Connectivity;
+Connectivity.Directory = directory_1.Directory;
+//# sourceMappingURL=connectivity.js.map
+
+/***/ }),
+
+/***/ 31337:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Directory = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ServicesAPI = __importStar(__nccwpck_require__(71808));
+const services_1 = __nccwpck_require__(71808);
+class Directory extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.services = new ServicesAPI.Services(this._client);
+    }
+}
+exports.Directory = Directory;
+Directory.Services = services_1.Services;
+Directory.ServiceListResponsesV4PagePaginationArray = services_1.ServiceListResponsesV4PagePaginationArray;
+//# sourceMappingURL=directory.js.map
+
+/***/ }),
+
+/***/ 71808:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ServiceListResponsesV4PagePaginationArray = exports.Services = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Services extends resource_1.APIResource {
+    /**
+     * Create Workers VPC connectivity service
+     *
+     * @example
+     * ```ts
+     * const service =
+     *   await client.connectivity.directory.services.create({
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     host: {
+     *       hostname: 'api.example.com',
+     *       resolver_network: {
+     *         tunnel_id: '0191dce4-9ab4-7fce-b660-8e5dec5172da',
+     *       },
+     *     },
+     *     name: 'web-server',
+     *     type: 'http',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/connectivity/directory/services`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update Workers VPC connectivity service
+     *
+     * @example
+     * ```ts
+     * const service =
+     *   await client.connectivity.directory.services.update(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: 'account_id',
+     *       host: {
+     *         ipv4: '10.0.0.1',
+     *         network: {
+     *           tunnel_id: '0191dce4-9ab4-7fce-b660-8e5dec5172da',
+     *         },
+     *       },
+     *       name: 'postgres-db',
+     *       type: 'tcp',
+     *     },
+     *   );
+     * ```
+     */
+    update(serviceId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/connectivity/directory/services/${serviceId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List Workers VPC connectivity services
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const serviceListResponse of client.connectivity.directory.services.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/connectivity/directory/services`, ServiceListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete Workers VPC connectivity service
+     *
+     * @example
+     * ```ts
+     * await client.connectivity.directory.services.delete(
+     *   '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *   { account_id: 'account_id' },
+     * );
+     * ```
+     */
+    delete(serviceId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/connectivity/directory/services/${serviceId}`, {
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    /**
+     * Get Workers VPC connectivity service
+     *
+     * @example
+     * ```ts
+     * const service =
+     *   await client.connectivity.directory.services.get(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    get(serviceId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/connectivity/directory/services/${serviceId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Services = Services;
+class ServiceListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.ServiceListResponsesV4PagePaginationArray = ServiceListResponsesV4PagePaginationArray;
+Services.ServiceListResponsesV4PagePaginationArray = ServiceListResponsesV4PagePaginationArray;
+//# sourceMappingURL=services.js.map
 
 /***/ }),
 
@@ -44056,7 +47792,54 @@ class ContentScanning extends resource_1.APIResource {
         this.settings = new SettingsAPI.Settings(this._client);
     }
     /**
+     * Update the Content Scanning status.
+     *
+     * @example
+     * ```ts
+     * const contentScanning = await client.contentScanning.create(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     value: 'enabled',
+     *   },
+     * );
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/content-upload-scan/settings`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update the Content Scanning status.
+     *
+     * @example
+     * ```ts
+     * const contentScanning = await client.contentScanning.update(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     value: 'enabled',
+     *   },
+     * );
+     * ```
+     */
+    update(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/content-upload-scan/settings`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
      * Disable Content Scanning.
+     *
+     * @example
+     * ```ts
+     * const response = await client.contentScanning.disable({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
      */
     disable(params, options) {
         const { zone_id } = params;
@@ -44064,10 +47847,31 @@ class ContentScanning extends resource_1.APIResource {
     }
     /**
      * Enable Content Scanning.
+     *
+     * @example
+     * ```ts
+     * const response = await client.contentScanning.enable({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
      */
     enable(params, options) {
         const { zone_id } = params;
         return this._client.post(`/zones/${zone_id}/content-upload-scan/enable`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve the current status of Content Scanning.
+     *
+     * @example
+     * ```ts
+     * const contentScanning = await client.contentScanning.get({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    get(params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/content-upload-scan/settings`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ContentScanning = ContentScanning;
@@ -44093,6 +47897,24 @@ const pagination_1 = __nccwpck_require__(30404);
 class Payloads extends resource_1.APIResource {
     /**
      * Add custom scan expressions for Content Scanning.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const payloadCreateResponse of client.contentScanning.payloads.create(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     body: [
+     *       {
+     *         payload:
+     *           'lookup_json_string(http.request.body.raw, "file")',
+     *       },
+     *     ],
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
      */
     create(params, options) {
         const { zone_id, body } = params;
@@ -44100,6 +47922,16 @@ class Payloads extends resource_1.APIResource {
     }
     /**
      * Get a list of existing custom scan expressions for Content Scanning.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const payloadListResponse of client.contentScanning.payloads.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
      */
     list(params, options) {
         const { zone_id } = params;
@@ -44107,6 +47939,17 @@ class Payloads extends resource_1.APIResource {
     }
     /**
      * Delete a Content Scan Custom Expression.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const payloadDeleteResponse of client.contentScanning.payloads.delete(
+     *   'a350a054caa840c9becd89c3b4f0195b',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
      */
     delete(expressionId, params, options) {
         const { zone_id } = params;
@@ -44142,6 +47985,13 @@ const resource_1 = __nccwpck_require__(59108);
 class Settings extends resource_1.APIResource {
     /**
      * Retrieve the current status of Content Scanning.
+     *
+     * @example
+     * ```ts
+     * const setting = await client.contentScanning.settings.get({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
      */
     get(params, options) {
         const { zone_id } = params;
@@ -44269,7 +48119,9 @@ class CustomCertificates extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * SSL Configuration Details
+     * Retrieves details for a specific custom SSL certificate, including certificate
+     * metadata, bundle method, geographic restrictions, and associated keyless server
+     * configuration.
      *
      * @example
      * ```ts
@@ -44508,7 +48360,6 @@ class CustomHostnames extends resource_1.APIResource {
      * const customHostname = await client.customHostnames.create({
      *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   hostname: 'app.example.com',
-     *   ssl: {},
      * });
      * ```
      */
@@ -44534,7 +48385,8 @@ class CustomHostnames extends resource_1.APIResource {
         return this._client.getAPIList(`/zones/${zone_id}/custom_hostnames`, CustomHostnameListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete Custom Hostname (and any issued SSL certificates)
+     * Permanently deletes a custom hostname and revokes any SSL certificates that were
+     * issued for it. This action cannot be undone.
      *
      * @example
      * ```ts
@@ -44573,7 +48425,8 @@ class CustomHostnames extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Custom Hostname Details
+     * Retrieves detailed information about a specific custom hostname, including SSL
+     * certificate status, ownership verification, and origin configuration.
      *
      * @example
      * ```ts
@@ -44611,7 +48464,8 @@ exports.FallbackOrigin = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class FallbackOrigin extends resource_1.APIResource {
     /**
-     * Update Fallback Origin for Custom Hostnames
+     * Updates the fallback origin configuration for custom hostnames on a zone. Sets
+     * the default origin server for custom hostname traffic.
      *
      * @example
      * ```ts
@@ -44630,7 +48484,8 @@ class FallbackOrigin extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Delete Fallback Origin for Custom Hostnames
+     * Removes the fallback origin configuration for custom hostnames on a zone. Custom
+     * hostnames without specific origins will no longer have a fallback.
      *
      * @example
      * ```ts
@@ -44645,7 +48500,9 @@ class FallbackOrigin extends resource_1.APIResource {
         return this._client.delete(`/zones/${zone_id}/custom_hostnames/fallback_origin`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Fallback Origin for Custom Hostnames
+     * Retrieves the current fallback origin configuration for custom hostnames on a
+     * zone. The fallback origin handles traffic when specific custom hostname origins
+     * are unavailable.
      *
      * @example
      * ```ts
@@ -44665,7 +48522,7 @@ exports.FallbackOrigin = FallbackOrigin;
 
 /***/ }),
 
-/***/ 88457:
+/***/ 44731:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -44741,19 +48598,226 @@ CustomNameservers.CustomNameserversSinglePage = CustomNameserversSinglePage;
 
 /***/ }),
 
-/***/ 37508:
+/***/ 50882:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CustomPageListResponsesSinglePage = exports.CustomPages = void 0;
+exports.CustomNameservers = void 0;
+var custom_nameservers_1 = __nccwpck_require__(44731);
+Object.defineProperty(exports, "CustomNameservers", ({ enumerable: true, get: function () { return custom_nameservers_1.CustomNameservers; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 71418:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AssetListResponsesV4PagePaginationArray = exports.Assets = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
 const error_1 = __nccwpck_require__(47952);
 const pagination_1 = __nccwpck_require__(30404);
+class Assets extends resource_1.APIResource {
+    /**
+     * Creates a new custom asset.
+     *
+     * @example
+     * ```ts
+     * const asset = await client.customPages.assets.create({
+     *   description: 'Custom 500 error page',
+     *   name: 'my_custom_error_page',
+     *   url: 'https://example.com/error.html',
+     *   account_id: 'account_id',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, zone_id, ...body } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.post(`/${accountOrZone}/${accountOrZoneId}/custom_pages/assets`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates the configuration of an existing custom asset.
+     *
+     * @example
+     * ```ts
+     * const asset = await client.customPages.assets.update(
+     *   'my_custom_error_page',
+     *   {
+     *     description: 'Custom 500 error page',
+     *     url: 'https://example.com/error.html',
+     *     account_id: 'account_id',
+     *   },
+     * );
+     * ```
+     */
+    update(assetName, params, options) {
+        const { account_id, zone_id, ...body } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.put(`/${accountOrZone}/${accountOrZoneId}/custom_pages/assets/${assetName}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    list(params = {}, options) {
+        if ((0, core_1.isRequestOptions)(params)) {
+            return this.list({}, params);
+        }
+        const { account_id, zone_id, ...query } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.getAPIList(`/${accountOrZone}/${accountOrZoneId}/custom_pages/assets`, AssetListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    delete(assetName, params = {}, options) {
+        if ((0, core_1.isRequestOptions)(params)) {
+            return this.delete(assetName, {}, params);
+        }
+        const { account_id, zone_id } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.delete(`/${accountOrZone}/${accountOrZoneId}/custom_pages/assets/${assetName}`, {
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    get(assetName, params = {}, options) {
+        if ((0, core_1.isRequestOptions)(params)) {
+            return this.get(assetName, {}, params);
+        }
+        const { account_id, zone_id } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.get(`/${accountOrZone}/${accountOrZoneId}/custom_pages/assets/${assetName}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Assets = Assets;
+class AssetListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.AssetListResponsesV4PagePaginationArray = AssetListResponsesV4PagePaginationArray;
+Assets.AssetListResponsesV4PagePaginationArray = AssetListResponsesV4PagePaginationArray;
+//# sourceMappingURL=assets.js.map
+
+/***/ }),
+
+/***/ 14905:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CustomPageListResponsesSinglePage = exports.CustomPages = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+const AssetsAPI = __importStar(__nccwpck_require__(71418));
+const assets_1 = __nccwpck_require__(71418);
+const error_1 = __nccwpck_require__(47952);
+const pagination_1 = __nccwpck_require__(30404);
 class CustomPages extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.assets = new AssetsAPI.Assets(this._client);
+    }
     /**
      * Updates the configuration of an existing custom page.
      *
@@ -44841,6 +48905,8 @@ class CustomPageListResponsesSinglePage extends pagination_1.SinglePage {
 }
 exports.CustomPageListResponsesSinglePage = CustomPageListResponsesSinglePage;
 CustomPages.CustomPageListResponsesSinglePage = CustomPageListResponsesSinglePage;
+CustomPages.Assets = assets_1.Assets;
+CustomPages.AssetListResponsesV4PagePaginationArray = assets_1.AssetListResponsesV4PagePaginationArray;
 //# sourceMappingURL=custom-pages.js.map
 
 /***/ }),
@@ -44877,8 +48943,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.D1Resource = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const DatabaseAPI = __importStar(__nccwpck_require__(86013));
-const database_1 = __nccwpck_require__(86013);
+const DatabaseAPI = __importStar(__nccwpck_require__(83733));
+const database_1 = __nccwpck_require__(83733);
 class D1Resource extends resource_1.APIResource {
     constructor() {
         super(...arguments);
@@ -44894,17 +48960,46 @@ D1Resource.DatabaseRawResponsesSinglePage = database_1.DatabaseRawResponsesSingl
 
 /***/ }),
 
-/***/ 86013:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+/***/ 83733:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.DatabaseRawResponsesSinglePage = exports.QueryResultsSinglePage = exports.DatabaseListResponsesV4PagePaginationArray = exports.Database = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const TimeTravelAPI = __importStar(__nccwpck_require__(28230));
+const time_travel_1 = __nccwpck_require__(28230);
 const pagination_1 = __nccwpck_require__(30404);
 class Database extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.timeTravel = new TimeTravelAPI.TimeTravel(this._client);
+    }
     /**
      * Returns the created D1 database.
      *
@@ -45111,11 +49206,69 @@ exports.DatabaseRawResponsesSinglePage = DatabaseRawResponsesSinglePage;
 Database.DatabaseListResponsesV4PagePaginationArray = DatabaseListResponsesV4PagePaginationArray;
 Database.QueryResultsSinglePage = QueryResultsSinglePage;
 Database.DatabaseRawResponsesSinglePage = DatabaseRawResponsesSinglePage;
+Database.TimeTravel = time_travel_1.TimeTravel;
 //# sourceMappingURL=database.js.map
 
 /***/ }),
 
-/***/ 53576:
+/***/ 28230:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TimeTravel = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class TimeTravel extends resource_1.APIResource {
+    /**
+     * Retrieves the current bookmark, or the nearest bookmark at or before a provided
+     * timestamp. Bookmarks can be used with the restore endpoint to revert the
+     * database to a previous point in time.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.d1.database.timeTravel.getBookmark(
+     *     'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getBookmark(databaseId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/d1/database/${databaseId}/time_travel/bookmark`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Restores a D1 database to a previous point in time either via a bookmark or a
+     * timestamp.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.d1.database.timeTravel.restore(
+     *     'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    restore(databaseId, params, options) {
+        const { account_id, bookmark, timestamp } = params;
+        return this._client.post(`/accounts/${account_id}/d1/database/${databaseId}/time_travel/restore`, {
+            query: { bookmark, timestamp },
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.TimeTravel = TimeTravel;
+//# sourceMappingURL=time-travel.js.map
+
+/***/ }),
+
+/***/ 60017:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -45136,6 +49289,20 @@ class DCVDelegation extends resource_1.APIResource {
 }
 exports.DCVDelegation = DCVDelegation;
 //# sourceMappingURL=dcv-delegation.js.map
+
+/***/ }),
+
+/***/ 51391:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DCVDelegation = void 0;
+var dcv_delegation_1 = __nccwpck_require__(60017);
+Object.defineProperty(exports, "DCVDelegation", ({ enumerable: true, get: function () { return dcv_delegation_1.DCVDelegation; } }));
+//# sourceMappingURL=index.js.map
 
 /***/ }),
 
@@ -45872,6 +50039,8 @@ const AnalyticsAPI = __importStar(__nccwpck_require__(27179));
 const analytics_1 = __nccwpck_require__(27179);
 const SettingsAPI = __importStar(__nccwpck_require__(81447));
 const settings_1 = __nccwpck_require__(81447);
+const UsageAPI = __importStar(__nccwpck_require__(49015));
+const usage_1 = __nccwpck_require__(49015);
 const ZoneTransfersAPI = __importStar(__nccwpck_require__(4983));
 const zone_transfers_1 = __nccwpck_require__(4983);
 class DNS extends resource_1.APIResource {
@@ -45879,6 +50048,7 @@ class DNS extends resource_1.APIResource {
         super(...arguments);
         this.dnssec = new DNSSECAPI.DNSSECResource(this._client);
         this.records = new RecordsAPI.Records(this._client);
+        this.usage = new UsageAPI.Usage(this._client);
         this.settings = new SettingsAPI.Settings(this._client);
         this.analytics = new AnalyticsAPI.Analytics(this._client);
         this.zoneTransfers = new ZoneTransfersAPI.ZoneTransfers(this._client);
@@ -45889,6 +50059,7 @@ DNS.DNSSECResource = dnssec_1.DNSSECResource;
 DNS.Records = records_1.Records;
 DNS.RecordResponsesV4PagePaginationArray = records_1.RecordResponsesV4PagePaginationArray;
 DNS.RecordResponsesSinglePage = records_1.RecordResponsesSinglePage;
+DNS.Usage = usage_1.Usage;
 DNS.Settings = settings_1.Settings;
 DNS.Analytics = analytics_1.Analytics;
 DNS.ZoneTransfers = zone_transfers_1.ZoneTransfers;
@@ -46549,6 +50720,88 @@ class Zone extends resource_1.APIResource {
         const { zone_id } = params;
         return this._client.get(`/zones/${zone_id}/dns_settings`, options)._thenUnwrap((obj) => obj.result);
     }
+}
+exports.Zone = Zone;
+//# sourceMappingURL=zone.js.map
+
+/***/ }),
+
+/***/ 90235:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Account = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Account extends resource_1.APIResource {
+}
+exports.Account = Account;
+//# sourceMappingURL=account.js.map
+
+/***/ }),
+
+/***/ 49015:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Usage = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const AccountAPI = __importStar(__nccwpck_require__(90235));
+const account_1 = __nccwpck_require__(90235);
+const ZoneAPI = __importStar(__nccwpck_require__(63436));
+const zone_1 = __nccwpck_require__(63436);
+class Usage extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.zone = new ZoneAPI.Zone(this._client);
+        this.account = new AccountAPI.Account(this._client);
+    }
+}
+exports.Usage = Usage;
+Usage.Zone = zone_1.Zone;
+Usage.Account = account_1.Account;
+//# sourceMappingURL=usage.js.map
+
+/***/ }),
+
+/***/ 63436:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Zone = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Zone extends resource_1.APIResource {
 }
 exports.Zone = Zone;
 //# sourceMappingURL=zone.js.map
@@ -47694,7 +51947,8 @@ const resource_1 = __nccwpck_require__(59108);
 class CatchAlls extends resource_1.APIResource {
     /**
      * Enable or disable catch-all routing rule, or change action to forward to
-     * specific destination address.
+     * specific destination address. Forward actions require all destination addresses
+     * to be verified.
      *
      * @example
      * ```ts
@@ -47777,7 +52031,8 @@ class Rules extends resource_1.APIResource {
     /**
      * Rules consist of a set of criteria for matching emails (such as an email being
      * sent to a specific custom email address) plus a set of actions to take on the
-     * email (like forwarding it to a specific destination address).
+     * email (like forwarding it to a specific destination address). Forward actions
+     * require all destination addresses to be verified.
      *
      * @example
      * ```ts
@@ -47794,7 +52049,8 @@ class Rules extends resource_1.APIResource {
         return this._client.post(`/zones/${zone_id}/email/routing/rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update actions and matches, or enable/disable specific routing rules.
+     * Update actions and matches, or enable/disable specific routing rules. Forward
+     * actions require all destination addresses to be verified.
      *
      * @example
      * ```ts
@@ -47912,12 +52168,15 @@ const SubmissionsAPI = __importStar(__nccwpck_require__(86997));
 const submissions_1 = __nccwpck_require__(86997);
 const InvestigateAPI = __importStar(__nccwpck_require__(1755));
 const investigate_1 = __nccwpck_require__(1755);
+const PhishguardAPI = __importStar(__nccwpck_require__(2947));
+const phishguard_1 = __nccwpck_require__(2947);
 const SettingsAPI = __importStar(__nccwpck_require__(20947));
 const settings_1 = __nccwpck_require__(20947);
 class EmailSecurity extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.investigate = new InvestigateAPI.Investigate(this._client);
+        this.phishguard = new PhishguardAPI.Phishguard(this._client);
         this.settings = new SettingsAPI.Settings(this._client);
         this.submissions = new SubmissionsAPI.Submissions(this._client);
     }
@@ -47925,6 +52184,7 @@ class EmailSecurity extends resource_1.APIResource {
 exports.EmailSecurity = EmailSecurity;
 EmailSecurity.Investigate = investigate_1.Investigate;
 EmailSecurity.InvestigateListResponsesV4PagePaginationArray = investigate_1.InvestigateListResponsesV4PagePaginationArray;
+EmailSecurity.Phishguard = phishguard_1.Phishguard;
 EmailSecurity.Settings = settings_1.Settings;
 EmailSecurity.Submissions = submissions_1.Submissions;
 EmailSecurity.SubmissionListResponsesV4PagePaginationArray = submissions_1.SubmissionListResponsesV4PagePaginationArray;
@@ -47950,14 +52210,14 @@ class Detections extends resource_1.APIResource {
      * ```ts
      * const detection =
      *   await client.emailSecurity.investigate.detections.get(
-     *     '4Njp3P0STMz2c02Q',
+     *     '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    get(postfixId, params, options) {
+    get(investigateId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/email-security/investigate/${postfixId}/detections`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/email-security/investigate/${investigateId}/detections`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Detections = Detections;
@@ -48041,20 +52301,25 @@ class Investigate extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/email-security/investigate`, InvestigateListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Get message details
+     * Retrieves comprehensive details for a specific email message including headers,
+     * recipients, sender information, and current quarantine status. Use the
+     * investigate_id from search results to fetch detailed information.
      *
      * @example
      * ```ts
      * const investigate =
      *   await client.emailSecurity.investigate.get(
-     *     '4Njp3P0STMz2c02Q',
+     *     '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    get(postfixId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/email-security/investigate/${postfixId}`, options)._thenUnwrap((obj) => obj.result);
+    get(investigateId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/email-security/investigate/${investigateId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Investigate = Investigate;
@@ -48088,13 +52353,15 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Move extends resource_1.APIResource {
     /**
-     * Move a message
+     * Moves a single message to a specified mailbox folder (Inbox, JunkEmail,
+     * DeletedItems, RecoverableItemsDeletions, or RecoverableItemsPurges). Requires
+     * active integration.
      *
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
      * for await (const moveCreateResponse of client.emailSecurity.investigate.move.create(
-     *   '4Njp3P0STMz2c02Q',
+     *   '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     destination: 'Inbox',
@@ -48104,12 +52371,14 @@ class Move extends resource_1.APIResource {
      * }
      * ```
      */
-    create(postfixId, params, options) {
+    create(investigateId, params, options) {
         const { account_id, ...body } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/email-security/investigate/${postfixId}/move`, MoveCreateResponsesSinglePage, { body, method: 'post', ...options });
+        return this._client.getAPIList(`/accounts/${account_id}/email-security/investigate/${investigateId}/move`, MoveCreateResponsesSinglePage, { body, method: 'post', ...options });
     }
     /**
-     * Move multiple messages
+     * Moves multiple messages to a specified mailbox folder (Inbox, JunkEmail,
+     * DeletedItems, RecoverableItemsDeletions, or RecoverableItemsPurges). Requires
+     * active integration.
      *
      * @example
      * ```ts
@@ -48118,7 +52387,6 @@ class Move extends resource_1.APIResource {
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     destination: 'Inbox',
-     *     postfix_ids: ['4Njp3P0STMz2c02Q'],
      *   },
      * )) {
      *   // ...
@@ -48154,7 +52422,9 @@ exports.Preview = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Preview extends resource_1.APIResource {
     /**
-     * Preview for non-detection messages
+     * Generates a preview image for a message that was not flagged as a detection.
+     * Useful for investigating benign messages. Returns a base64-encoded PNG
+     * screenshot of the email body.
      *
      * @example
      * ```ts
@@ -48180,14 +52450,14 @@ class Preview extends resource_1.APIResource {
      * ```ts
      * const preview =
      *   await client.emailSecurity.investigate.preview.get(
-     *     '4Njp3P0STMz2c02Q',
+     *     '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    get(postfixId, params, options) {
+    get(investigateId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/email-security/investigate/${postfixId}/preview`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/email-security/investigate/${investigateId}/preview`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Preview = Preview;
@@ -48211,14 +52481,14 @@ class Raw extends resource_1.APIResource {
      * @example
      * ```ts
      * const raw = await client.emailSecurity.investigate.raw.get(
-     *   '4Njp3P0STMz2c02Q',
+     *   '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
      */
-    get(postfixId, params, options) {
+    get(investigateId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/email-security/investigate/${postfixId}/raw`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/email-security/investigate/${investigateId}/raw`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Raw = Raw;
@@ -48237,13 +52507,15 @@ exports.Reclassify = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Reclassify extends resource_1.APIResource {
     /**
-     * Change email classfication
+     * Submits a request to reclassify an email's disposition. Use for reporting false
+     * positives or false negatives. Optionally provide the raw EML content for
+     * reanalysis. The reclassification is processed asynchronously.
      *
      * @example
      * ```ts
      * const reclassify =
      *   await client.emailSecurity.investigate.reclassify.create(
-     *     '4Njp3P0STMz2c02Q',
+     *     '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *     {
      *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *       expected_disposition: 'NONE',
@@ -48251,9 +52523,9 @@ class Reclassify extends resource_1.APIResource {
      *   );
      * ```
      */
-    create(postfixId, params, options) {
+    create(investigateId, params, options) {
         const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/email-security/investigate/${postfixId}/reclassify`, {
+        return this._client.post(`/accounts/${account_id}/email-security/investigate/${investigateId}/reclassify`, {
             body,
             ...options,
         })._thenUnwrap((obj) => obj.result);
@@ -48276,7 +52548,9 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Release extends resource_1.APIResource {
     /**
-     * Release messages from quarantine
+     * Releases one or more quarantined messages, delivering them to the intended
+     * recipients. Use when a message was incorrectly quarantined. Returns delivery
+     * status for each recipient.
      *
      * @example
      * ```ts
@@ -48284,7 +52558,7 @@ class Release extends resource_1.APIResource {
      * for await (const releaseBulkResponse of client.emailSecurity.investigate.release.bulk(
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: ['4Njp3P0STMz2c02Q'],
+     *     body: ['4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678'],
      *   },
      * )) {
      *   // ...
@@ -48316,24 +52590,113 @@ exports.Trace = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Trace extends resource_1.APIResource {
     /**
-     * Get email trace
+     * Retrieves delivery and processing trace information for an email message. Shows
+     * the delivery path, retraction history, and move operations performed on the
+     * message. Useful for debugging delivery issues.
      *
      * @example
      * ```ts
      * const trace =
      *   await client.emailSecurity.investigate.trace.get(
-     *     '4Njp3P0STMz2c02Q',
+     *     '4Njp3P0STMz2c02Q-2024-01-05T10:00:00-12345678',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    get(postfixId, params, options) {
+    get(investigateId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/email-security/investigate/${postfixId}/trace`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/email-security/investigate/${investigateId}/trace`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Trace = Trace;
 //# sourceMappingURL=trace.js.map
+
+/***/ }),
+
+/***/ 2947:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Phishguard = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ReportsAPI = __importStar(__nccwpck_require__(54439));
+const reports_1 = __nccwpck_require__(54439);
+class Phishguard extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.reports = new ReportsAPI.Reports(this._client);
+    }
+}
+exports.Phishguard = Phishguard;
+Phishguard.Reports = reports_1.Reports;
+Phishguard.ReportListResponsesSinglePage = reports_1.ReportListResponsesSinglePage;
+//# sourceMappingURL=phishguard.js.map
+
+/***/ }),
+
+/***/ 54439:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ReportListResponsesSinglePage = exports.Reports = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Reports extends resource_1.APIResource {
+    /**
+     * Retrieves PhishGuard security alert reports for a specified date range. Reports
+     * include detected threats, dispositions, and contextual information. Use for
+     * security monitoring and threat analysis.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const reportListResponse of client.emailSecurity.phishguard.reports.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/email-security/phishguard/reports`, ReportListResponsesSinglePage, { query, ...options });
+    }
+}
+exports.Reports = Reports;
+class ReportListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.ReportListResponsesSinglePage = ReportListResponsesSinglePage;
+Reports.ReportListResponsesSinglePage = ReportListResponsesSinglePage;
+//# sourceMappingURL=reports.js.map
 
 /***/ }),
 
@@ -48349,7 +52712,9 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class AllowPolicies extends resource_1.APIResource {
     /**
-     * Create an email allow policy
+     * Creates a new allow policy that exempts matching emails from security
+     * detections. Use with caution as this bypasses email security scanning. Policies
+     * can match on sender patterns and apply to specific detections or all detections.
      *
      * @example
      * ```ts
@@ -48374,7 +52739,9 @@ class AllowPolicies extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Lists, searches, and sorts an account’s email allow policies.
+     * Returns a paginated list of email allow policies. These policies exempt matching
+     * emails from security detection, allowing them to bypass disposition actions.
+     * Supports filtering by pattern type and policy attributes.
      *
      * @example
      * ```ts
@@ -48391,13 +52758,14 @@ class AllowPolicies extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/email-security/settings/allow_policies`, AllowPolicyListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete an email allow policy
+     * Removes an allow policy. After deletion, emails matching this pattern will be
+     * subject to normal security scanning and disposition actions.
      *
      * @example
      * ```ts
      * const allowPolicy =
      *   await client.emailSecurity.settings.allowPolicies.delete(
-     *     2401,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48407,13 +52775,14 @@ class AllowPolicies extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/email-security/settings/allow_policies/${policyId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update an email allow policy
+     * Updates an existing allow policy. Only provided fields will be modified. Changes
+     * take effect for new emails matching the pattern.
      *
      * @example
      * ```ts
      * const response =
      *   await client.emailSecurity.settings.allowPolicies.edit(
-     *     2401,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48426,13 +52795,14 @@ class AllowPolicies extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get an email allow policy
+     * Retrieves details for a specific allow policy including its pattern,
+     * dispositions that are exempted, and whether it applies to all detections.
      *
      * @example
      * ```ts
      * const allowPolicy =
      *   await client.emailSecurity.settings.allowPolicies.get(
-     *     2401,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48463,7 +52833,9 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class BlockSenders extends resource_1.APIResource {
     /**
-     * Create a blocked email sender
+     * Creates a new blocked sender pattern. Emails matching this pattern will be
+     * blocked from delivery. Patterns can be email addresses, domains, or IP
+     * addresses, and support regular expressions.
      *
      * @example
      * ```ts
@@ -48484,7 +52856,9 @@ class BlockSenders extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List blocked email senders
+     * Returns a paginated list of blocked email sender patterns. These patterns
+     * prevent emails from matching senders from being delivered. Supports filtering by
+     * pattern type and searching across patterns.
      *
      * @example
      * ```ts
@@ -48501,13 +52875,14 @@ class BlockSenders extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/email-security/settings/block_senders`, BlockSenderListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a blocked email sender
+     * Removes a blocked sender pattern. After deletion, emails from this sender will
+     * no longer be automatically blocked based on this rule.
      *
      * @example
      * ```ts
      * const blockSender =
      *   await client.emailSecurity.settings.blockSenders.delete(
-     *     2402,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48517,13 +52892,14 @@ class BlockSenders extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/email-security/settings/block_senders/${patternId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update a blocked email sender
+     * Updates an existing blocked sender pattern. Only provided fields will be
+     * modified. The pattern will continue blocking emails until deleted.
      *
      * @example
      * ```ts
      * const response =
      *   await client.emailSecurity.settings.blockSenders.edit(
-     *     2402,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48536,13 +52912,14 @@ class BlockSenders extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get a blocked email sender
+     * Retrieves details for a specific blocked sender pattern including its pattern
+     * type, value, and metadata.
      *
      * @example
      * ```ts
      * const blockSender =
      *   await client.emailSecurity.settings.blockSenders.get(
-     *     2402,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48568,12 +52945,14 @@ BlockSenders.BlockSenderListResponsesV4PagePaginationArray = BlockSenderListResp
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DomainBulkDeleteResponsesSinglePage = exports.DomainListResponsesV4PagePaginationArray = exports.Domains = void 0;
+exports.DomainListResponsesV4PagePaginationArray = exports.Domains = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Domains extends resource_1.APIResource {
     /**
-     * Lists, searches, and sorts an account’s email domains.
+     * Returns a paginated list of email domains protected by Email Security. Includes
+     * domain configuration, delivery modes, and authorization status. Supports
+     * filtering by delivery mode and integration ID.
      *
      * @example
      * ```ts
@@ -48590,14 +52969,17 @@ class Domains extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/email-security/settings/domains`, DomainListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Unprotect an email domain
+     * Removes email security protection from a domain. After deletion, emails for this
+     * domain will no longer be processed by Email Security. This action cannot be
+     * undone.
      *
      * @example
      * ```ts
      * const domain =
-     *   await client.emailSecurity.settings.domains.delete(2400, {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   });
+     *   await client.emailSecurity.settings.domains.delete(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
      * ```
      */
     delete(domainId, params, options) {
@@ -48605,32 +52987,17 @@ class Domains extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/email-security/settings/domains/${domainId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Unprotect multiple email domains
-     *
-     * @example
-     * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const domainBulkDeleteResponse of client.emailSecurity.settings.domains.bulkDelete(
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * )) {
-     *   // ...
-     * }
-     * ```
-     */
-    bulkDelete(params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/email-security/settings/domains`, DomainBulkDeleteResponsesSinglePage, { method: 'delete', ...options });
-    }
-    /**
-     * Update an email domain
+     * Updates configuration for a protected email domain. Only provided fields will be
+     * modified. Changes affect delivery mode, security settings, and regional
+     * processing.
      *
      * @example
      * ```ts
      * const response =
-     *   await client.emailSecurity.settings.domains.edit(2400, {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     ip_restrictions: ['192.0.2.0/24', '2001:db8::/32'],
-     *   });
+     *   await client.emailSecurity.settings.domains.edit(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
      * ```
      */
     edit(domainId, params, options) {
@@ -48641,14 +53008,16 @@ class Domains extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get an email domain
+     * Retrieves detailed information for a specific protected email domain including
+     * its delivery configuration, SPF/DMARC status, and authorization state.
      *
      * @example
      * ```ts
      * const domain =
-     *   await client.emailSecurity.settings.domains.get(2400, {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   });
+     *   await client.emailSecurity.settings.domains.get(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
      * ```
      */
     get(domainId, params, options) {
@@ -48660,11 +53029,7 @@ exports.Domains = Domains;
 class DomainListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
 exports.DomainListResponsesV4PagePaginationArray = DomainListResponsesV4PagePaginationArray;
-class DomainBulkDeleteResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.DomainBulkDeleteResponsesSinglePage = DomainBulkDeleteResponsesSinglePage;
 Domains.DomainListResponsesV4PagePaginationArray = DomainListResponsesV4PagePaginationArray;
-Domains.DomainBulkDeleteResponsesSinglePage = DomainBulkDeleteResponsesSinglePage;
 //# sourceMappingURL=domains.js.map
 
 /***/ }),
@@ -48681,7 +53046,9 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class ImpersonationRegistry extends resource_1.APIResource {
     /**
-     * Create an entry in impersonation registry
+     * Creates a new entry in the impersonation registry to protect against
+     * impersonation. Emails attempting to impersonate this identity will be flagged.
+     * Supports regex patterns for flexible email matching.
      *
      * @example
      * ```ts
@@ -48689,9 +53056,9 @@ class ImpersonationRegistry extends resource_1.APIResource {
      *   await client.emailSecurity.settings.impersonationRegistry.create(
      *     {
      *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *       email: 'email',
-     *       is_email_regex: true,
-     *       name: 'name',
+     *       email: 'john.doe@example.com',
+     *       is_email_regex: false,
+     *       name: 'John Doe',
      *     },
      *   );
      * ```
@@ -48704,7 +53071,10 @@ class ImpersonationRegistry extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Lists, searches, and sorts entries in the impersonation registry.
+     * Returns a paginated list of protected identities in the impersonation registry.
+     * These entries define identities and email addresses to protect from
+     * impersonation attacks. Can be manually added or automatically synced from
+     * directory integrations.
      *
      * @example
      * ```ts
@@ -48721,52 +53091,56 @@ class ImpersonationRegistry extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/email-security/settings/impersonation_registry`, ImpersonationRegistryListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete an entry from impersonation registry
+     * Removes an entry from the impersonation registry. After deletion, this identity
+     * will no longer be protected from impersonation.
      *
      * @example
      * ```ts
      * const impersonationRegistry =
      *   await client.emailSecurity.settings.impersonationRegistry.delete(
-     *     2403,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    delete(displayNameId, params, options) {
+    delete(impersonationRegistryId, params, options) {
         const { account_id } = params;
-        return this._client.delete(`/accounts/${account_id}/email-security/settings/impersonation_registry/${displayNameId}`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.delete(`/accounts/${account_id}/email-security/settings/impersonation_registry/${impersonationRegistryId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update an entry in impersonation registry
+     * Updates an existing impersonation registry entry. Only provided fields will be
+     * modified. Directory-synced entries can't be updated.
      *
      * @example
      * ```ts
      * const response =
      *   await client.emailSecurity.settings.impersonationRegistry.edit(
-     *     2403,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    edit(displayNameId, params, options) {
+    edit(impersonationRegistryId, params, options) {
         const { account_id, ...body } = params;
-        return this._client.patch(`/accounts/${account_id}/email-security/settings/impersonation_registry/${displayNameId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        return this._client.patch(`/accounts/${account_id}/email-security/settings/impersonation_registry/${impersonationRegistryId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get an entry in impersonation registry
+     * Retrieves details for a specific impersonation registry entry including the
+     * protected identity, email pattern, and synchronization source if
+     * directory-synced.
      *
      * @example
      * ```ts
      * const impersonationRegistry =
      *   await client.emailSecurity.settings.impersonationRegistry.get(
-     *     2403,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
-    get(displayNameId, params, options) {
+    get(impersonationRegistryId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/email-security/settings/impersonation_registry/${displayNameId}`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/email-security/settings/impersonation_registry/${impersonationRegistryId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ImpersonationRegistry = ImpersonationRegistry;
@@ -48838,7 +53212,6 @@ Settings.BlockSenders = block_senders_1.BlockSenders;
 Settings.BlockSenderListResponsesV4PagePaginationArray = block_senders_1.BlockSenderListResponsesV4PagePaginationArray;
 Settings.Domains = domains_1.Domains;
 Settings.DomainListResponsesV4PagePaginationArray = domains_1.DomainListResponsesV4PagePaginationArray;
-Settings.DomainBulkDeleteResponsesSinglePage = domains_1.DomainBulkDeleteResponsesSinglePage;
 Settings.ImpersonationRegistry = impersonation_registry_1.ImpersonationRegistry;
 Settings.ImpersonationRegistryListResponsesV4PagePaginationArray =
     impersonation_registry_1.ImpersonationRegistryListResponsesV4PagePaginationArray;
@@ -48860,7 +53233,9 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class TrustedDomains extends resource_1.APIResource {
     /**
-     * Create a trusted email domain
+     * Creates a new trusted domain pattern. Use for partner domains or approved
+     * senders that should bypass recent domain registration and similarity checks.
+     * Configure whether it prevents recent domain or spoof dispositions.
      *
      * @example
      * ```ts
@@ -48884,7 +53259,9 @@ class TrustedDomains extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Lists, searches, and sorts an account’s trusted email domains.
+     * Returns a paginated list of trusted domain patterns. Trusted domains prevent
+     * false positives for recently registered domains and lookalike domain detections.
+     * Patterns can use regular expressions for flexible matching.
      *
      * @example
      * ```ts
@@ -48901,13 +53278,14 @@ class TrustedDomains extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/email-security/settings/trusted_domains`, TrustedDomainListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a trusted email domain
+     * Removes a trusted domain pattern. After deletion, emails from this domain will
+     * be subject to normal recent domain and similarity checks.
      *
      * @example
      * ```ts
      * const trustedDomain =
      *   await client.emailSecurity.settings.trustedDomains.delete(
-     *     2401,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48917,13 +53295,14 @@ class TrustedDomains extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/email-security/settings/trusted_domains/${trustedDomainId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update a trusted email domain
+     * Updates an existing trusted domain pattern. Only provided fields will be
+     * modified. Changes take effect for new emails matching the pattern.
      *
      * @example
      * ```ts
      * const response =
      *   await client.emailSecurity.settings.trustedDomains.edit(
-     *     2401,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48933,13 +53312,14 @@ class TrustedDomains extends resource_1.APIResource {
         return this._client.patch(`/accounts/${account_id}/email-security/settings/trusted_domains/${trustedDomainId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get a trusted email domain
+     * Retrieves details for a specific trusted domain pattern including its pattern
+     * value, whether it uses regex matching, and which detection types it affects.
      *
      * @example
      * ```ts
      * const trustedDomain =
      *   await client.emailSecurity.settings.trustedDomains.get(
-     *     2401,
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
@@ -48971,7 +53351,9 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Submissions extends resource_1.APIResource {
     /**
-     * This endpoint returns information for submissions to made to reclassify emails.
+     * Returns information for submissions made to reclassify emails. Shows the status,
+     * outcome, and disposition changes for reclassification requests made by users or
+     * the security team. Useful for tracking false positive/negative reports.
      *
      * @example
      * ```ts
@@ -48997,7 +53379,252 @@ Submissions.SubmissionListResponsesV4PagePaginationArray = SubmissionListRespons
 
 /***/ }),
 
-/***/ 60983:
+/***/ 60947:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.EmailSending = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const SubdomainsAPI = __importStar(__nccwpck_require__(79319));
+const subdomains_1 = __nccwpck_require__(79319);
+class EmailSending extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.subdomains = new SubdomainsAPI.Subdomains(this._client);
+    }
+    /**
+     * Send an email
+     *
+     * @example
+     * ```ts
+     * const response = await client.emailSending.send({
+     *   account_id: 'account_id',
+     *   from: 'sender@example.com',
+     *   subject: 'Monthly Report',
+     *   to: ['recipient@example.com'],
+     * });
+     * ```
+     */
+    send(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/email/sending/send`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Send a raw MIME email
+     *
+     * @example
+     * ```ts
+     * const response = await client.emailSending.sendRaw({
+     *   account_id: 'account_id',
+     *   from: 'sender@example.com',
+     *   mime_message:
+     *     'From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Hello\r\nContent-Type: text/plain\r\n\r\nHello, World!',
+     *   recipients: ['recipient@example.com'],
+     * });
+     * ```
+     */
+    sendRaw(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/email/sending/send_raw`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.EmailSending = EmailSending;
+EmailSending.Subdomains = subdomains_1.Subdomains;
+EmailSending.SubdomainListResponsesSinglePage = subdomains_1.SubdomainListResponsesSinglePage;
+//# sourceMappingURL=email-sending.js.map
+
+/***/ }),
+
+/***/ 10017:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DNSRecordsSinglePage = exports.DNS = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const dns_1 = __nccwpck_require__(4399);
+Object.defineProperty(exports, "DNSRecordsSinglePage", ({ enumerable: true, get: function () { return dns_1.DNSRecordsSinglePage; } }));
+class DNS extends resource_1.APIResource {
+    /**
+     * Returns the expected DNS records for a sending subdomain.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const dnsRecord of client.emailSending.subdomains.dns.get(
+     *   'aabbccdd11223344aabbccdd11223344',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    get(subdomainId, params, options) {
+        const { zone_id } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/email/sending/subdomains/${subdomainId}/dns`, dns_1.DNSRecordsSinglePage, options);
+    }
+}
+exports.DNS = DNS;
+//# sourceMappingURL=dns.js.map
+
+/***/ }),
+
+/***/ 79319:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SubdomainListResponsesSinglePage = exports.Subdomains = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const DNSAPI = __importStar(__nccwpck_require__(10017));
+const dns_1 = __nccwpck_require__(10017);
+const pagination_1 = __nccwpck_require__(30404);
+class Subdomains extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.dns = new DNSAPI.DNS(this._client);
+    }
+    /**
+     * Creates a new sending subdomain or re-enables sending on an existing subdomain
+     * that had it disabled. If zone-level Email Sending has not been enabled yet, the
+     * zone flag is automatically set when the entitlement is present.
+     *
+     * @example
+     * ```ts
+     * const subdomain =
+     *   await client.emailSending.subdomains.create({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     name: 'sub.example.com',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/email/sending/subdomains`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all sending-enabled subdomains for the zone.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const subdomainListResponse of client.emailSending.subdomains.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { zone_id } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/email/sending/subdomains`, SubdomainListResponsesSinglePage, options);
+    }
+    /**
+     * Disables sending on a subdomain and removes its DNS records. If routing is still
+     * active on the subdomain, only sending is disabled.
+     *
+     * @example
+     * ```ts
+     * const subdomain =
+     *   await client.emailSending.subdomains.delete(
+     *     'aabbccdd11223344aabbccdd11223344',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(subdomainId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/email/sending/subdomains/${subdomainId}`, options);
+    }
+    /**
+     * Gets information for a specific sending subdomain.
+     *
+     * @example
+     * ```ts
+     * const subdomain = await client.emailSending.subdomains.get(
+     *   'aabbccdd11223344aabbccdd11223344',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(subdomainId, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/email/sending/subdomains/${subdomainId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Subdomains = Subdomains;
+class SubdomainListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.SubdomainListResponsesSinglePage = SubdomainListResponsesSinglePage;
+Subdomains.SubdomainListResponsesSinglePage = SubdomainListResponsesSinglePage;
+Subdomains.DNS = dns_1.DNS;
+//# sourceMappingURL=subdomains.js.map
+
+/***/ }),
+
+/***/ 92843:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -49097,6 +53724,20 @@ exports.FirewallFiltersV4PagePaginationArray = FirewallFiltersV4PagePaginationAr
 Filters.FirewallFiltersSinglePage = FirewallFiltersSinglePage;
 Filters.FirewallFiltersV4PagePaginationArray = FirewallFiltersV4PagePaginationArray;
 //# sourceMappingURL=filters.js.map
+
+/***/ }),
+
+/***/ 15344:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Filters = void 0;
+var filters_1 = __nccwpck_require__(92843);
+Object.defineProperty(exports, "Filters", ({ enumerable: true, get: function () { return filters_1.Filters; } }));
+//# sourceMappingURL=index.js.map
 
 /***/ }),
 
@@ -50028,6 +54669,170 @@ WAF.PackageListResponsesV4PagePaginationArray = packages_1.PackageListResponsesV
 
 /***/ }),
 
+/***/ 93411:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Fraud = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Fraud extends resource_1.APIResource {
+    /**
+     * Update Fraud Detection settings for a zone.
+     *
+     * Notes on `username_expressions` behavior:
+     *
+     * - If omitted or set to null, expressions are not modified.
+     * - If provided as an empty array `[]`, all expressions will be cleared.
+     *
+     * @example
+     * ```ts
+     * const fraudSettings = await client.fraud.update({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   username_expressions: [],
+     * });
+     * ```
+     */
+    update(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/fraud_detection/settings`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve Fraud Detection settings for a zone.
+     *
+     * @example
+     * ```ts
+     * const fraudSettings = await client.fraud.get({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    get(params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/fraud_detection/settings`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Fraud = Fraud;
+//# sourceMappingURL=fraud.js.map
+
+/***/ }),
+
+/***/ 19821:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Fraud = void 0;
+var fraud_1 = __nccwpck_require__(93411);
+Object.defineProperty(exports, "Fraud", ({ enumerable: true, get: function () { return fraud_1.Fraud; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 30976:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ConfigResource = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class ConfigResource extends resource_1.APIResource {
+    /**
+     * Updates the Google Tag Gateway configuration for a zone.
+     *
+     * @example
+     * ```ts
+     * const config = await client.googleTagGateway.config.update({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   enabled: true,
+     *   endpoint: '/metrics',
+     *   hideOriginalIp: true,
+     *   measurementId: 'GTM-P2F3N47Q',
+     * });
+     * ```
+     */
+    update(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/settings/google-tag-gateway/config`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Gets the Google Tag Gateway configuration for a zone.
+     *
+     * @example
+     * ```ts
+     * const config = await client.googleTagGateway.config.get({
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    get(params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/settings/google-tag-gateway/config`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.ConfigResource = ConfigResource;
+//# sourceMappingURL=config.js.map
+
+/***/ }),
+
+/***/ 7579:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GoogleTagGateway = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ConfigAPI = __importStar(__nccwpck_require__(30976));
+const config_1 = __nccwpck_require__(30976);
+class GoogleTagGateway extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.config = new ConfigAPI.ConfigResource(this._client);
+    }
+}
+exports.GoogleTagGateway = GoogleTagGateway;
+GoogleTagGateway.ConfigResource = config_1.ConfigResource;
+//# sourceMappingURL=google-tag-gateway.js.map
+
+/***/ }),
+
 /***/ 39951:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -50358,21 +55163,6 @@ const pagination_1 = __nccwpck_require__(30404);
 class TLS extends resource_1.APIResource {
     /**
      * Update the tls setting value for the hostname.
-     *
-     * @example
-     * ```ts
-     * const setting = await client.hostnames.settings.tls.update(
-     *   'ciphers',
-     *   'app.example.com',
-     *   {
-     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     value: [
-     *       'ECDHE-RSA-AES128-GCM-SHA256',
-     *       'AES128-GCM-SHA256',
-     *     ],
-     *   },
-     * );
-     * ```
      */
     update(settingId, hostname, params, options) {
         const { zone_id, ...body } = params;
@@ -50383,15 +55173,6 @@ class TLS extends resource_1.APIResource {
     }
     /**
      * Delete the tls setting value for the hostname.
-     *
-     * @example
-     * ```ts
-     * const tls = await client.hostnames.settings.tls.delete(
-     *   'ciphers',
-     *   'app.example.com',
-     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * );
-     * ```
      */
     delete(settingId, hostname, params, options) {
         const { zone_id } = params;
@@ -50399,17 +55180,6 @@ class TLS extends resource_1.APIResource {
     }
     /**
      * List the requested TLS setting for the hostnames under this zone.
-     *
-     * @example
-     * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const tlsGetResponse of client.hostnames.settings.tls.get(
-     *   'ciphers',
-     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * )) {
-     *   // ...
-     * }
-     * ```
      */
     get(settingId, params, options) {
         const { zone_id } = params;
@@ -50650,6 +55420,8 @@ const PermissionGroupsAPI = __importStar(__nccwpck_require__(66068));
 const permission_groups_1 = __nccwpck_require__(66068);
 const ResourceGroupsAPI = __importStar(__nccwpck_require__(39589));
 const resource_groups_1 = __nccwpck_require__(39589);
+const SSOAPI = __importStar(__nccwpck_require__(70209));
+const sso_1 = __nccwpck_require__(70209);
 const UserGroupsAPI = __importStar(__nccwpck_require__(93313));
 const user_groups_1 = __nccwpck_require__(93313);
 class IAM extends resource_1.APIResource {
@@ -50658,6 +55430,7 @@ class IAM extends resource_1.APIResource {
         this.permissionGroups = new PermissionGroupsAPI.PermissionGroups(this._client);
         this.resourceGroups = new ResourceGroupsAPI.ResourceGroups(this._client);
         this.userGroups = new UserGroupsAPI.UserGroups(this._client);
+        this.sso = new SSOAPI.SSO(this._client);
     }
 }
 exports.IAM = IAM;
@@ -50667,6 +55440,8 @@ IAM.ResourceGroups = resource_groups_1.ResourceGroups;
 IAM.ResourceGroupListResponsesSinglePage = resource_groups_1.ResourceGroupListResponsesSinglePage;
 IAM.UserGroups = user_groups_1.UserGroups;
 IAM.UserGroupListResponsesV4PagePaginationArray = user_groups_1.UserGroupListResponsesV4PagePaginationArray;
+IAM.SSO = sso_1.SSO;
+IAM.SSOListResponsesSinglePage = sso_1.SSOListResponsesSinglePage;
 //# sourceMappingURL=iam.js.map
 
 /***/ }),
@@ -50713,7 +55488,7 @@ class PermissionGroups extends resource_1.APIResource {
      */
     get(permissionGroupId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/iam/permission_groups/${permissionGroupId}`, options);
+        return this._client.get(`/accounts/${account_id}/iam/permission_groups/${permissionGroupId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.PermissionGroups = PermissionGroups;
@@ -50759,7 +55534,10 @@ class ResourceGroups extends resource_1.APIResource {
      */
     create(params, options) {
         const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/iam/resource_groups`, { body, ...options });
+        return this._client.post(`/accounts/${account_id}/iam/resource_groups`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Modify an existing resource group.
@@ -50778,7 +55556,7 @@ class ResourceGroups extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/iam/resource_groups/${resourceGroupId}`, {
             body,
             ...options,
-        });
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * List all the resource groups for an account.
@@ -50826,7 +55604,7 @@ class ResourceGroups extends resource_1.APIResource {
      */
     get(resourceGroupId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/iam/resource_groups/${resourceGroupId}`, options);
+        return this._client.get(`/accounts/${account_id}/iam/resource_groups/${resourceGroupId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ResourceGroups = ResourceGroups;
@@ -50838,6 +55616,122 @@ ResourceGroups.ResourceGroupListResponsesSinglePage = ResourceGroupListResponses
 
 /***/ }),
 
+/***/ 70209:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SSOListResponsesSinglePage = exports.SSO = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class SSO extends resource_1.APIResource {
+    /**
+     * Initialize new SSO connector
+     *
+     * @example
+     * ```ts
+     * const sso = await client.iam.sso.create({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   email_domain: 'example.com',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/sso_connectors`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update SSO connector state
+     *
+     * @example
+     * ```ts
+     * const sso = await client.iam.sso.update(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    update(ssoConnectorId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/sso_connectors/${ssoConnectorId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get all SSO connectors
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const ssoListResponse of client.iam.sso.list({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * })) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/sso_connectors`, SSOListResponsesSinglePage, options);
+    }
+    /**
+     * Delete SSO connector
+     *
+     * @example
+     * ```ts
+     * const sso = await client.iam.sso.delete(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(ssoConnectorId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/sso_connectors/${ssoConnectorId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Begin SSO connector verification
+     *
+     * @example
+     * ```ts
+     * const response = await client.iam.sso.beginVerification(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    beginVerification(ssoConnectorId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/sso_connectors/${ssoConnectorId}/begin_verification`, options);
+    }
+    /**
+     * Get single SSO connector
+     *
+     * @example
+     * ```ts
+     * const sso = await client.iam.sso.get(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(ssoConnectorId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/sso_connectors/${ssoConnectorId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.SSO = SSO;
+class SSOListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.SSOListResponsesSinglePage = SSOListResponsesSinglePage;
+SSO.SSOListResponsesSinglePage = SSOListResponsesSinglePage;
+//# sourceMappingURL=sso.js.map
+
+/***/ }),
+
 /***/ 24220:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -50845,7 +55739,7 @@ ResourceGroups.ResourceGroupListResponsesSinglePage = ResourceGroupListResponses
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.MemberListResponsesV4PagePaginationArray = exports.MemberUpdateResponsesSinglePage = exports.Members = void 0;
+exports.MemberListResponsesV4PagePaginationArray = exports.MemberUpdateResponsesSinglePage = exports.MemberCreateResponsesSinglePage = exports.Members = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Members extends resource_1.APIResource {
@@ -50854,21 +55748,21 @@ class Members extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const member = await client.iam.userGroups.members.create(
+     * // Automatically fetches more pages as needed.
+     * for await (const memberCreateResponse of client.iam.userGroups.members.create(
      *   '023e105f4ecef8ad9ca31a8372d0c353',
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: [{ id: '023e105f4ecef8ad9ca31a8372d0c353' }],
+     *     members: [{ id: '023e105f4ecef8ad9ca31a8372d0c353' }],
      *   },
-     * );
+     * )) {
+     *   // ...
+     * }
      * ```
      */
     create(userGroupId, params, options) {
-        const { account_id, body } = params;
-        return this._client.post(`/accounts/${account_id}/iam/user_groups/${userGroupId}/members`, {
-            body: body,
-            ...options,
-        })._thenUnwrap((obj) => obj.result);
+        const { account_id, members } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/iam/user_groups/${userGroupId}/members`, MemberCreateResponsesSinglePage, { body: members, method: 'post', ...options });
     }
     /**
      * Replace the set of members attached to a User Group.
@@ -50880,7 +55774,7 @@ class Members extends resource_1.APIResource {
      *   '023e105f4ecef8ad9ca31a8372d0c353',
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: [{ id: '023e105f4ecef8ad9ca31a8372d0c353' }],
+     *     members: [{ id: '023e105f4ecef8ad9ca31a8372d0c353' }],
      *   },
      * )) {
      *   // ...
@@ -50888,8 +55782,8 @@ class Members extends resource_1.APIResource {
      * ```
      */
     update(userGroupId, params, options) {
-        const { account_id, body } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/iam/user_groups/${userGroupId}/members`, MemberUpdateResponsesSinglePage, { body: body, method: 'put', ...options });
+        const { account_id, members } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/iam/user_groups/${userGroupId}/members`, MemberUpdateResponsesSinglePage, { body: members, method: 'put', ...options });
     }
     /**
      * List all the members attached to a user group.
@@ -50925,14 +55819,34 @@ class Members extends resource_1.APIResource {
         const { account_id } = params;
         return this._client.delete(`/accounts/${account_id}/iam/user_groups/${userGroupId}/members/${memberId}`, options)._thenUnwrap((obj) => obj.result);
     }
+    /**
+     * Get details of a specific member in a user group.
+     *
+     * @example
+     * ```ts
+     * const member = await client.iam.userGroups.members.get(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(userGroupId, memberId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/iam/user_groups/${userGroupId}/members/${memberId}`, options)._thenUnwrap((obj) => obj.result);
+    }
 }
 exports.Members = Members;
+class MemberCreateResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.MemberCreateResponsesSinglePage = MemberCreateResponsesSinglePage;
 class MemberUpdateResponsesSinglePage extends pagination_1.SinglePage {
 }
 exports.MemberUpdateResponsesSinglePage = MemberUpdateResponsesSinglePage;
 class MemberListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
 exports.MemberListResponsesV4PagePaginationArray = MemberListResponsesV4PagePaginationArray;
+Members.MemberCreateResponsesSinglePage = MemberCreateResponsesSinglePage;
 Members.MemberUpdateResponsesSinglePage = MemberUpdateResponsesSinglePage;
 Members.MemberListResponsesV4PagePaginationArray = MemberListResponsesV4PagePaginationArray;
 //# sourceMappingURL=members.js.map
@@ -50987,18 +55901,6 @@ class UserGroups extends resource_1.APIResource {
      * const userGroup = await client.iam.userGroups.create({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   name: 'My New User Group',
-     *   policies: [
-     *     {
-     *       access: 'allow',
-     *       permission_groups: [
-     *         { id: 'c8fed203ed3043cba015a93ad1616f1f' },
-     *         { id: '82e64a83756745bbbb1c9c2701bf816b' },
-     *       ],
-     *       resource_groups: [
-     *         { id: '6d7f2f5f5b1d4a0e9081fdc98d432fd1' },
-     *       ],
-     *     },
-     *   ],
      * });
      * ```
      */
@@ -51078,6 +55980,7 @@ class UserGroupListResponsesV4PagePaginationArray extends pagination_1.V4PagePag
 exports.UserGroupListResponsesV4PagePaginationArray = UserGroupListResponsesV4PagePaginationArray;
 UserGroups.UserGroupListResponsesV4PagePaginationArray = UserGroupListResponsesV4PagePaginationArray;
 UserGroups.Members = members_1.Members;
+UserGroups.MemberCreateResponsesSinglePage = members_1.MemberCreateResponsesSinglePage;
 UserGroups.MemberUpdateResponsesSinglePage = members_1.MemberUpdateResponsesSinglePage;
 UserGroups.MemberListResponsesV4PagePaginationArray = members_1.MemberListResponsesV4PagePaginationArray;
 //# sourceMappingURL=user-groups.js.map
@@ -51615,9 +56518,51 @@ class V2 extends resource_1.APIResource {
         this.directUploads = new DirectUploadsAPI.DirectUploads(this._client);
     }
     /**
-     * List up to 10000 images with one request. Use the optional parameters below to
-     * get a specific range of images. Endpoint returns continuation_token if more
-     * images are present.
+     * List up to 10000 images with up to 1000 results per page. Use the optional
+     * parameters below to get a specific range of images. Pagination is supported via
+     * continuation_token.
+     *
+     * **Metadata Filtering (Optional):**
+     *
+     * You can optionally filter images by custom metadata fields using the
+     * `meta.<field>[<operator>]=<value>` syntax.
+     *
+     * **Supported Operators:**
+     *
+     * - `eq` / `eq:string` / `eq:number` / `eq:boolean` - Exact match
+     * - `in` / `in:string` / `in:number` - Match any value in list (pipe-separated)
+     *
+     * **Metadata Filter Constraints:**
+     *
+     * - Maximum 5 metadata filters per request
+     * - Maximum 5 levels of nesting (e.g., `meta.first.second.third.fourth.fifth`)
+     * - Maximum 10 elements for list operators (`in`)
+     * - Supports string, number, and boolean value types
+     *
+     * **Examples:**
+     *
+     * ```
+     * # List all images
+     * /images/v2
+     *
+     * # Filter by metadata [eq]
+     * /images/v2?meta.status[eq:string]=active
+     *
+     * # Filter by metadata [in]
+     * /images/v2?meta.status[in]=pending|deleted|flagged
+     *
+     * # Filter by metadata [in:number]
+     * /images/v2?meta.ratings[in:number]=4|5
+     *
+     * # Filter by nested metadata
+     * /images/v2?meta.region.name[eq]=eu-west
+     *
+     * # Combine metadata filters with creator
+     * /images/v2?meta.status[eq]=active&creator=user123
+     *
+     * # Multiple metadata filters (AND logic)
+     * /images/v2?meta.status[eq]=active&meta.priority[eq:number]=5
+     * ```
      *
      * @example
      * ```ts
@@ -51658,8 +56603,9 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.MTLSCertificates = exports.Logs = exports.Logpush = exports.LoadBalancers = exports.LeakedCredentialChecks = exports.KeylessCertificates = exports.KV = exports.Intel = exports.Images = exports.IPs = exports.IAM = exports.HyperdriveResource = exports.Hostnames = exports.Healthchecks = exports.Firewall = exports.Filters = exports.EmailSecurity = exports.EmailRouting = exports.DurableObjects = exports.Diagnostics = exports.DNSFirewall = exports.DNS = exports.DCVDelegation = exports.D1Resource = exports.CustomPages = exports.CustomNameservers = exports.CustomHostnames = exports.CustomCertificates = exports.ContentScanning = exports.CloudforceOne = exports.CloudConnector = exports.ClientCertificates = exports.CertificateAuthorities = exports.Calls = exports.Cache = exports.BrowserRendering = exports.BrandProtection = exports.BotnetFeed = exports.BotManagement = exports.Billing = exports.AuditLogs = exports.Argo = exports.Alerting = exports.Addressing = exports.Accounts = exports.AbuseReports = exports.APIGateway = exports.AIGateway = exports.AI = exports.ACM = void 0;
-exports.Zones = exports.ZeroTrust = exports.Zaraz = exports.Workflows = exports.WorkersForPlatforms = exports.Workers = exports.Web3 = exports.WaitingRooms = exports.Vectorize = exports.User = exports.URLScanner = exports.URLNormalization = exports.Turnstile = exports.Stream = exports.Speed = exports.Spectrum = exports.Snippets = exports.SecurityTXT = exports.SecurityCenter = exports.SecretsStore = exports.SchemaValidation = exports.SSL = exports.Rulesets = exports.Rules = exports.ResourceSharing = exports.RequestTracers = exports.Registrar = exports.RateLimits = exports.Radar = exports.RUM = exports.R2 = exports.Queues = exports.Pipelines = exports.Pages = exports.PageShield = exports.PageRules = exports.OriginTLSClientAuth = exports.OriginPostQuantumEncryption = exports.OriginCACertificates = exports.NetworkInterconnects = exports.Memberships = exports.ManagedTransforms = exports.MagicTransit = exports.MagicNetworkMonitoring = exports.MagicCloudNetworking = void 0;
+exports.KeylessCertificates = exports.KV = exports.Intel = exports.Images = exports.IPs = exports.IAM = exports.HyperdriveResource = exports.Hostnames = exports.Healthchecks = exports.GoogleTagGateway = exports.Fraud = exports.Firewall = exports.Filters = exports.EmailSending = exports.EmailSecurity = exports.EmailRouting = exports.DurableObjects = exports.Diagnostics = exports.DNSFirewall = exports.DNS = exports.DCVDelegation = exports.D1Resource = exports.CustomPages = exports.CustomNameservers = exports.CustomHostnames = exports.CustomCertificates = exports.ContentScanning = exports.Connectivity = exports.CloudforceOne = exports.CloudConnector = exports.ClientCertificates = exports.CertificateAuthorities = exports.Calls = exports.Cache = exports.BrowserRendering = exports.BrandProtection = exports.BotnetFeed = exports.BotManagement = exports.Billing = exports.AuditLogs = exports.Argo = exports.Alerting = exports.Addressing = exports.Accounts = exports.AbuseReports = exports.APIGateway = exports.AISearch = exports.AIGateway = exports.AI = exports.ACM = void 0;
+exports.Web3 = exports.WaitingRooms = exports.VulnerabilityScanner = exports.Vectorize = exports.User = exports.URLScanner = exports.URLNormalization = exports.Turnstile = exports.TokenValidation = exports.Stream = exports.Speed = exports.Spectrum = exports.Snippets = exports.SecurityTXT = exports.SecurityCenter = exports.SecretsStore = exports.SchemaValidation = exports.SSL = exports.Rulesets = exports.Rules = exports.ResourceTagging = exports.ResourceSharing = exports.RequestTracers = exports.Registrar = exports.RealtimeKit = exports.RateLimits = exports.Radar = exports.RUM = exports.R2DataCatalog = exports.R2 = exports.Queues = exports.Pipelines = exports.Pages = exports.PageShield = exports.PageRules = exports.OriginTLSClientAuth = exports.OriginPostQuantumEncryption = exports.OriginCACertificates = exports.Organizations = exports.NetworkInterconnects = exports.Memberships = exports.ManagedTransforms = exports.MagicTransit = exports.MagicNetworkMonitoring = exports.MagicCloudNetworking = exports.MTLSCertificates = exports.Logs = exports.Logpush = exports.LoadBalancers = exports.LeakedCredentialChecks = void 0;
+exports.Zones = exports.ZeroTrust = exports.Zaraz = exports.Workflows = exports.WorkersForPlatforms = exports.Workers = void 0;
 __exportStar(__nccwpck_require__(8575), exports);
 var acm_1 = __nccwpck_require__(78683);
 Object.defineProperty(exports, "ACM", ({ enumerable: true, get: function () { return acm_1.ACM; } }));
@@ -51667,9 +56613,11 @@ var ai_1 = __nccwpck_require__(61405);
 Object.defineProperty(exports, "AI", ({ enumerable: true, get: function () { return ai_1.AI; } }));
 var ai_gateway_1 = __nccwpck_require__(82571);
 Object.defineProperty(exports, "AIGateway", ({ enumerable: true, get: function () { return ai_gateway_1.AIGateway; } }));
+var aisearch_1 = __nccwpck_require__(10461);
+Object.defineProperty(exports, "AISearch", ({ enumerable: true, get: function () { return aisearch_1.AISearch; } }));
 var api_gateway_1 = __nccwpck_require__(47963);
 Object.defineProperty(exports, "APIGateway", ({ enumerable: true, get: function () { return api_gateway_1.APIGateway; } }));
-var abuse_reports_1 = __nccwpck_require__(47460);
+var abuse_reports_1 = __nccwpck_require__(15487);
 Object.defineProperty(exports, "AbuseReports", ({ enumerable: true, get: function () { return abuse_reports_1.AbuseReports; } }));
 var accounts_1 = __nccwpck_require__(22413);
 Object.defineProperty(exports, "Accounts", ({ enumerable: true, get: function () { return accounts_1.Accounts; } }));
@@ -51679,11 +56627,11 @@ var alerting_1 = __nccwpck_require__(13361);
 Object.defineProperty(exports, "Alerting", ({ enumerable: true, get: function () { return alerting_1.Alerting; } }));
 var argo_1 = __nccwpck_require__(13995);
 Object.defineProperty(exports, "Argo", ({ enumerable: true, get: function () { return argo_1.Argo; } }));
-var audit_logs_1 = __nccwpck_require__(21519);
+var audit_logs_1 = __nccwpck_require__(32552);
 Object.defineProperty(exports, "AuditLogs", ({ enumerable: true, get: function () { return audit_logs_1.AuditLogs; } }));
 var billing_1 = __nccwpck_require__(49867);
 Object.defineProperty(exports, "Billing", ({ enumerable: true, get: function () { return billing_1.Billing; } }));
-var bot_management_1 = __nccwpck_require__(55729);
+var bot_management_1 = __nccwpck_require__(2442);
 Object.defineProperty(exports, "BotManagement", ({ enumerable: true, get: function () { return bot_management_1.BotManagement; } }));
 var botnet_feed_1 = __nccwpck_require__(29563);
 Object.defineProperty(exports, "BotnetFeed", ({ enumerable: true, get: function () { return botnet_feed_1.BotnetFeed; } }));
@@ -51697,25 +56645,27 @@ var calls_1 = __nccwpck_require__(3987);
 Object.defineProperty(exports, "Calls", ({ enumerable: true, get: function () { return calls_1.Calls; } }));
 var certificate_authorities_1 = __nccwpck_require__(53275);
 Object.defineProperty(exports, "CertificateAuthorities", ({ enumerable: true, get: function () { return certificate_authorities_1.CertificateAuthorities; } }));
-var client_certificates_1 = __nccwpck_require__(36186);
+var client_certificates_1 = __nccwpck_require__(68057);
 Object.defineProperty(exports, "ClientCertificates", ({ enumerable: true, get: function () { return client_certificates_1.ClientCertificates; } }));
 var cloud_connector_1 = __nccwpck_require__(75395);
 Object.defineProperty(exports, "CloudConnector", ({ enumerable: true, get: function () { return cloud_connector_1.CloudConnector; } }));
 var cloudforce_one_1 = __nccwpck_require__(92251);
 Object.defineProperty(exports, "CloudforceOne", ({ enumerable: true, get: function () { return cloudforce_one_1.CloudforceOne; } }));
+var connectivity_1 = __nccwpck_require__(78423);
+Object.defineProperty(exports, "Connectivity", ({ enumerable: true, get: function () { return connectivity_1.Connectivity; } }));
 var content_scanning_1 = __nccwpck_require__(25343);
 Object.defineProperty(exports, "ContentScanning", ({ enumerable: true, get: function () { return content_scanning_1.ContentScanning; } }));
 var custom_certificates_1 = __nccwpck_require__(17391);
 Object.defineProperty(exports, "CustomCertificates", ({ enumerable: true, get: function () { return custom_certificates_1.CustomCertificates; } }));
 var custom_hostnames_1 = __nccwpck_require__(85897);
 Object.defineProperty(exports, "CustomHostnames", ({ enumerable: true, get: function () { return custom_hostnames_1.CustomHostnames; } }));
-var custom_nameservers_1 = __nccwpck_require__(88457);
+var custom_nameservers_1 = __nccwpck_require__(50882);
 Object.defineProperty(exports, "CustomNameservers", ({ enumerable: true, get: function () { return custom_nameservers_1.CustomNameservers; } }));
-var custom_pages_1 = __nccwpck_require__(37508);
+var custom_pages_1 = __nccwpck_require__(14905);
 Object.defineProperty(exports, "CustomPages", ({ enumerable: true, get: function () { return custom_pages_1.CustomPages; } }));
 var d1_1 = __nccwpck_require__(95583);
 Object.defineProperty(exports, "D1Resource", ({ enumerable: true, get: function () { return d1_1.D1Resource; } }));
-var dcv_delegation_1 = __nccwpck_require__(53576);
+var dcv_delegation_1 = __nccwpck_require__(51391);
 Object.defineProperty(exports, "DCVDelegation", ({ enumerable: true, get: function () { return dcv_delegation_1.DCVDelegation; } }));
 var dns_1 = __nccwpck_require__(33211);
 Object.defineProperty(exports, "DNS", ({ enumerable: true, get: function () { return dns_1.DNS; } }));
@@ -51729,10 +56679,16 @@ var email_routing_1 = __nccwpck_require__(46651);
 Object.defineProperty(exports, "EmailRouting", ({ enumerable: true, get: function () { return email_routing_1.EmailRouting; } }));
 var email_security_1 = __nccwpck_require__(94459);
 Object.defineProperty(exports, "EmailSecurity", ({ enumerable: true, get: function () { return email_security_1.EmailSecurity; } }));
-var filters_1 = __nccwpck_require__(60983);
+var email_sending_1 = __nccwpck_require__(60947);
+Object.defineProperty(exports, "EmailSending", ({ enumerable: true, get: function () { return email_sending_1.EmailSending; } }));
+var filters_1 = __nccwpck_require__(15344);
 Object.defineProperty(exports, "Filters", ({ enumerable: true, get: function () { return filters_1.Filters; } }));
 var firewall_1 = __nccwpck_require__(61517);
 Object.defineProperty(exports, "Firewall", ({ enumerable: true, get: function () { return firewall_1.Firewall; } }));
+var fraud_1 = __nccwpck_require__(19821);
+Object.defineProperty(exports, "Fraud", ({ enumerable: true, get: function () { return fraud_1.Fraud; } }));
+var google_tag_gateway_1 = __nccwpck_require__(7579);
+Object.defineProperty(exports, "GoogleTagGateway", ({ enumerable: true, get: function () { return google_tag_gateway_1.GoogleTagGateway; } }));
 var healthchecks_1 = __nccwpck_require__(39951);
 Object.defineProperty(exports, "Healthchecks", ({ enumerable: true, get: function () { return healthchecks_1.Healthchecks; } }));
 var hostnames_1 = __nccwpck_require__(65552);
@@ -51741,7 +56697,7 @@ var hyperdrive_1 = __nccwpck_require__(54537);
 Object.defineProperty(exports, "HyperdriveResource", ({ enumerable: true, get: function () { return hyperdrive_1.HyperdriveResource; } }));
 var iam_1 = __nccwpck_require__(55851);
 Object.defineProperty(exports, "IAM", ({ enumerable: true, get: function () { return iam_1.IAM; } }));
-var ips_1 = __nccwpck_require__(55026);
+var ips_1 = __nccwpck_require__(80465);
 Object.defineProperty(exports, "IPs", ({ enumerable: true, get: function () { return ips_1.IPs; } }));
 var images_1 = __nccwpck_require__(13837);
 Object.defineProperty(exports, "Images", ({ enumerable: true, get: function () { return images_1.Images; } }));
@@ -51749,7 +56705,7 @@ var intel_1 = __nccwpck_require__(15227);
 Object.defineProperty(exports, "Intel", ({ enumerable: true, get: function () { return intel_1.Intel; } }));
 var kv_1 = __nccwpck_require__(40795);
 Object.defineProperty(exports, "KV", ({ enumerable: true, get: function () { return kv_1.KV; } }));
-var keyless_certificates_1 = __nccwpck_require__(99759);
+var keyless_certificates_1 = __nccwpck_require__(14696);
 Object.defineProperty(exports, "KeylessCertificates", ({ enumerable: true, get: function () { return keyless_certificates_1.KeylessCertificates; } }));
 var leaked_credential_checks_1 = __nccwpck_require__(58541);
 Object.defineProperty(exports, "LeakedCredentialChecks", ({ enumerable: true, get: function () { return leaked_credential_checks_1.LeakedCredentialChecks; } }));
@@ -51767,43 +56723,51 @@ var magic_network_monitoring_1 = __nccwpck_require__(59539);
 Object.defineProperty(exports, "MagicNetworkMonitoring", ({ enumerable: true, get: function () { return magic_network_monitoring_1.MagicNetworkMonitoring; } }));
 var magic_transit_1 = __nccwpck_require__(65447);
 Object.defineProperty(exports, "MagicTransit", ({ enumerable: true, get: function () { return magic_transit_1.MagicTransit; } }));
-var managed_transforms_1 = __nccwpck_require__(95671);
+var managed_transforms_1 = __nccwpck_require__(42608);
 Object.defineProperty(exports, "ManagedTransforms", ({ enumerable: true, get: function () { return managed_transforms_1.ManagedTransforms; } }));
-var memberships_1 = __nccwpck_require__(12461);
+var memberships_1 = __nccwpck_require__(47958);
 Object.defineProperty(exports, "Memberships", ({ enumerable: true, get: function () { return memberships_1.Memberships; } }));
 var network_interconnects_1 = __nccwpck_require__(80355);
 Object.defineProperty(exports, "NetworkInterconnects", ({ enumerable: true, get: function () { return network_interconnects_1.NetworkInterconnects; } }));
-var origin_ca_certificates_1 = __nccwpck_require__(16406);
+var organizations_1 = __nccwpck_require__(94475);
+Object.defineProperty(exports, "Organizations", ({ enumerable: true, get: function () { return organizations_1.Organizations; } }));
+var origin_ca_certificates_1 = __nccwpck_require__(60517);
 Object.defineProperty(exports, "OriginCACertificates", ({ enumerable: true, get: function () { return origin_ca_certificates_1.OriginCACertificates; } }));
-var origin_post_quantum_encryption_1 = __nccwpck_require__(19493);
+var origin_post_quantum_encryption_1 = __nccwpck_require__(42382);
 Object.defineProperty(exports, "OriginPostQuantumEncryption", ({ enumerable: true, get: function () { return origin_post_quantum_encryption_1.OriginPostQuantumEncryption; } }));
 var origin_tls_client_auth_1 = __nccwpck_require__(50603);
 Object.defineProperty(exports, "OriginTLSClientAuth", ({ enumerable: true, get: function () { return origin_tls_client_auth_1.OriginTLSClientAuth; } }));
-var page_rules_1 = __nccwpck_require__(97927);
+var page_rules_1 = __nccwpck_require__(11904);
 Object.defineProperty(exports, "PageRules", ({ enumerable: true, get: function () { return page_rules_1.PageRules; } }));
 var page_shield_1 = __nccwpck_require__(95227);
 Object.defineProperty(exports, "PageShield", ({ enumerable: true, get: function () { return page_shield_1.PageShield; } }));
 var pages_1 = __nccwpck_require__(33147);
 Object.defineProperty(exports, "Pages", ({ enumerable: true, get: function () { return pages_1.Pages; } }));
-var pipelines_1 = __nccwpck_require__(22275);
+var pipelines_1 = __nccwpck_require__(39595);
 Object.defineProperty(exports, "Pipelines", ({ enumerable: true, get: function () { return pipelines_1.Pipelines; } }));
 var queues_1 = __nccwpck_require__(85041);
 Object.defineProperty(exports, "Queues", ({ enumerable: true, get: function () { return queues_1.Queues; } }));
 var r2_1 = __nccwpck_require__(69689);
 Object.defineProperty(exports, "R2", ({ enumerable: true, get: function () { return r2_1.R2; } }));
+var r2_data_catalog_1 = __nccwpck_require__(73319);
+Object.defineProperty(exports, "R2DataCatalog", ({ enumerable: true, get: function () { return r2_data_catalog_1.R2DataCatalog; } }));
 var rum_1 = __nccwpck_require__(21695);
 Object.defineProperty(exports, "RUM", ({ enumerable: true, get: function () { return rum_1.RUM; } }));
 var radar_1 = __nccwpck_require__(55819);
 Object.defineProperty(exports, "Radar", ({ enumerable: true, get: function () { return radar_1.Radar; } }));
-var rate_limits_1 = __nccwpck_require__(89553);
+var rate_limits_1 = __nccwpck_require__(11210);
 Object.defineProperty(exports, "RateLimits", ({ enumerable: true, get: function () { return rate_limits_1.RateLimits; } }));
+var realtime_kit_1 = __nccwpck_require__(38073);
+Object.defineProperty(exports, "RealtimeKit", ({ enumerable: true, get: function () { return realtime_kit_1.RealtimeKit; } }));
 var registrar_1 = __nccwpck_require__(36611);
 Object.defineProperty(exports, "Registrar", ({ enumerable: true, get: function () { return registrar_1.Registrar; } }));
 var request_tracers_1 = __nccwpck_require__(2311);
 Object.defineProperty(exports, "RequestTracers", ({ enumerable: true, get: function () { return request_tracers_1.RequestTracers; } }));
 var resource_sharing_1 = __nccwpck_require__(21771);
 Object.defineProperty(exports, "ResourceSharing", ({ enumerable: true, get: function () { return resource_sharing_1.ResourceSharing; } }));
-var rules_1 = __nccwpck_require__(57307);
+var resource_tagging_1 = __nccwpck_require__(20977);
+Object.defineProperty(exports, "ResourceTagging", ({ enumerable: true, get: function () { return resource_tagging_1.ResourceTagging; } }));
+var rules_1 = __nccwpck_require__(79688);
 Object.defineProperty(exports, "Rules", ({ enumerable: true, get: function () { return rules_1.Rules; } }));
 var rulesets_1 = __nccwpck_require__(82435);
 Object.defineProperty(exports, "Rulesets", ({ enumerable: true, get: function () { return rulesets_1.Rulesets; } }));
@@ -51815,7 +56779,7 @@ var secrets_store_1 = __nccwpck_require__(57383);
 Object.defineProperty(exports, "SecretsStore", ({ enumerable: true, get: function () { return secrets_store_1.SecretsStore; } }));
 var security_center_1 = __nccwpck_require__(80059);
 Object.defineProperty(exports, "SecurityCenter", ({ enumerable: true, get: function () { return security_center_1.SecurityCenter; } }));
-var security_txt_1 = __nccwpck_require__(53325);
+var security_txt_1 = __nccwpck_require__(10134);
 Object.defineProperty(exports, "SecurityTXT", ({ enumerable: true, get: function () { return security_txt_1.SecurityTXT; } }));
 var snippets_1 = __nccwpck_require__(44929);
 Object.defineProperty(exports, "Snippets", ({ enumerable: true, get: function () { return snippets_1.Snippets; } }));
@@ -51825,9 +56789,11 @@ var speed_1 = __nccwpck_require__(26795);
 Object.defineProperty(exports, "Speed", ({ enumerable: true, get: function () { return speed_1.Speed; } }));
 var stream_1 = __nccwpck_require__(52445);
 Object.defineProperty(exports, "Stream", ({ enumerable: true, get: function () { return stream_1.Stream; } }));
+var token_validation_1 = __nccwpck_require__(31103);
+Object.defineProperty(exports, "TokenValidation", ({ enumerable: true, get: function () { return token_validation_1.TokenValidation; } }));
 var turnstile_1 = __nccwpck_require__(93459);
 Object.defineProperty(exports, "Turnstile", ({ enumerable: true, get: function () { return turnstile_1.Turnstile; } }));
-var url_normalization_1 = __nccwpck_require__(605);
+var url_normalization_1 = __nccwpck_require__(25478);
 Object.defineProperty(exports, "URLNormalization", ({ enumerable: true, get: function () { return url_normalization_1.URLNormalization; } }));
 var url_scanner_1 = __nccwpck_require__(80363);
 Object.defineProperty(exports, "URLScanner", ({ enumerable: true, get: function () { return url_scanner_1.URLScanner; } }));
@@ -51835,6 +56801,8 @@ var user_1 = __nccwpck_require__(97199);
 Object.defineProperty(exports, "User", ({ enumerable: true, get: function () { return user_1.User; } }));
 var vectorize_1 = __nccwpck_require__(79443);
 Object.defineProperty(exports, "Vectorize", ({ enumerable: true, get: function () { return vectorize_1.Vectorize; } }));
+var vulnerability_scanner_1 = __nccwpck_require__(5255);
+Object.defineProperty(exports, "VulnerabilityScanner", ({ enumerable: true, get: function () { return vulnerability_scanner_1.VulnerabilityScanner; } }));
 var waiting_rooms_1 = __nccwpck_require__(60503);
 Object.defineProperty(exports, "WaitingRooms", ({ enumerable: true, get: function () { return waiting_rooms_1.WaitingRooms; } }));
 var web3_1 = __nccwpck_require__(59075);
@@ -51843,7 +56811,7 @@ var workers_1 = __nccwpck_require__(98707);
 Object.defineProperty(exports, "Workers", ({ enumerable: true, get: function () { return workers_1.Workers; } }));
 var workers_for_platforms_1 = __nccwpck_require__(21667);
 Object.defineProperty(exports, "WorkersForPlatforms", ({ enumerable: true, get: function () { return workers_for_platforms_1.WorkersForPlatforms; } }));
-var workflows_1 = __nccwpck_require__(39595);
+var workflows_1 = __nccwpck_require__(61976);
 Object.defineProperty(exports, "Workflows", ({ enumerable: true, get: function () { return workflows_1.Workflows; } }));
 var zaraz_1 = __nccwpck_require__(19959);
 Object.defineProperty(exports, "Zaraz", ({ enumerable: true, get: function () { return zaraz_1.Zaraz; } }));
@@ -52010,7 +56978,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class IssueTypes extends resource_1.APIResource {
     /**
-     * Get Security Center Issues Types
+     * Lists all available issue types in Security Center, describing categories of
+     * security issues.
      *
      * @example
      * ```ts
@@ -52048,7 +57017,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Issues extends resource_1.APIResource {
     /**
-     * Get Security Center Issues
+     * Lists all Security Center issues for the account, showing active security
+     * problems requiring attention.
      *
      * @deprecated
      */
@@ -52057,7 +57027,7 @@ class Issues extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/intel/attack-surface-report/issues`, IssueListResponsesV4PagePagination, { query, ...options });
     }
     /**
-     * Get Security Center Issue Counts by Class
+     * Retrieves Security Center issue counts aggregated by classification class.
      *
      * @deprecated
      */
@@ -52069,7 +57039,8 @@ class Issues extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Archive Security Center Insight
+     * Deprecated endpoint for archiving Security Center insights. Use the newer
+     * archive-security-center-insight endpoint instead.
      *
      * @deprecated
      */
@@ -52081,7 +57052,7 @@ class Issues extends resource_1.APIResource {
         });
     }
     /**
-     * Get Security Center Issue Counts by Severity
+     * Retrieves Security Center issue counts aggregated by severity level.
      *
      * @deprecated
      */
@@ -52093,7 +57064,7 @@ class Issues extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Security Center Issue Counts by Type
+     * Retrieves Security Center issue counts aggregated by issue type.
      *
      * @deprecated
      */
@@ -52346,7 +57317,7 @@ class IndicatorFeeds extends resource_1.APIResource {
         this.downloads = new DownloadsAPI.Downloads(this._client);
     }
     /**
-     * Create new indicator feed
+     * Creates a new custom threat indicator feed for sharing threat intelligence data.
      *
      * @example
      * ```ts
@@ -52364,7 +57335,7 @@ class IndicatorFeeds extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update indicator feed metadata
+     * Revises details for a specific custom threat indicator feed.
      *
      * @example
      * ```ts
@@ -52382,7 +57353,7 @@ class IndicatorFeeds extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get indicator feeds owned by this account
+     * Retrieves details for all accessible custom threat indicator feeds.
      *
      * @example
      * ```ts
@@ -52399,7 +57370,7 @@ class IndicatorFeeds extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/intel/indicator-feeds`, IndicatorFeedListResponsesSinglePage, options);
     }
     /**
-     * Get indicator feed data
+     * Retrieves the raw data entries in a custom threat indicator feed.
      *
      * @example
      * ```ts
@@ -52417,7 +57388,7 @@ class IndicatorFeeds extends resource_1.APIResource {
         });
     }
     /**
-     * Get indicator feed metadata
+     * Retrieves details for a specific custom threat indicator feed.
      *
      * @example
      * ```ts
@@ -52455,7 +57426,7 @@ exports.Permissions = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Permissions extends resource_1.APIResource {
     /**
-     * Grant permission to indicator feed
+     * Grants access permissions for a custom threat indicator feed to other accounts.
      *
      * @example
      * ```ts
@@ -52473,7 +57444,7 @@ class Permissions extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List indicator feed permissions
+     * Lists current access permissions for custom threat indicator feeds.
      *
      * @example
      * ```ts
@@ -52488,7 +57459,7 @@ class Permissions extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/intel/indicator-feeds/permissions/view`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Revoke permission to indicator feed
+     * Revokes access permissions for a custom threat indicator feed.
      *
      * @example
      * ```ts
@@ -52546,7 +57517,7 @@ const resource_1 = __nccwpck_require__(59108);
 const Core = __importStar(__nccwpck_require__(75487));
 class Snapshots extends resource_1.APIResource {
     /**
-     * Update indicator feed data
+     * Revises the raw data entries in a custom threat indicator feed.
      *
      * @example
      * ```ts
@@ -52642,7 +57613,6 @@ Intel.Domains = domains_1.Domains;
 Intel.DomainHistoryResource = domain_history_1.DomainHistoryResource;
 Intel.IPs = ips_1.IPs;
 Intel.IPLists = ip_lists_1.IPLists;
-Intel.IPListsSinglePage = ip_lists_1.IPListsSinglePage;
 Intel.Miscategorizations = miscategorizations_1.Miscategorizations;
 Intel.IndicatorFeeds = indicator_feeds_1.IndicatorFeeds;
 Intel.IndicatorFeedListResponsesSinglePage = indicator_feeds_1.IndicatorFeedListResponsesSinglePage;
@@ -52660,33 +57630,11 @@ Intel.AttackSurfaceReport = attack_surface_report_1.AttackSurfaceReport;
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.IPListsSinglePage = exports.IPLists = void 0;
+exports.IPLists = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const pagination_1 = __nccwpck_require__(30404);
 class IPLists extends resource_1.APIResource {
-    /**
-     * Get IP Lists.
-     *
-     * @example
-     * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const ipList of client.intel.ipLists.get({
-     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     * })) {
-     *   // ...
-     * }
-     * ```
-     */
-    get(params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/intel/ip-list`, IPListsSinglePage, options);
-    }
 }
 exports.IPLists = IPLists;
-class IPListsSinglePage extends pagination_1.SinglePage {
-}
-exports.IPListsSinglePage = IPListsSinglePage;
-IPLists.IPListsSinglePage = IPListsSinglePage;
 //# sourceMappingURL=ip-lists.js.map
 
 /***/ }),
@@ -52803,7 +57751,8 @@ exports.Whois = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Whois extends resource_1.APIResource {
     /**
-     * Get WHOIS Record
+     * Retrieves WHOIS registration data for a domain, including registrant and
+     * nameserver information.
      *
      * @example
      * ```ts
@@ -52822,7 +57771,21 @@ exports.Whois = Whois;
 
 /***/ }),
 
-/***/ 55026:
+/***/ 80465:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.IPs = void 0;
+var ips_1 = __nccwpck_require__(95063);
+Object.defineProperty(exports, "IPs", ({ enumerable: true, get: function () { return ips_1.IPs; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 95063:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -52845,7 +57808,21 @@ exports.IPs = IPs;
 
 /***/ }),
 
-/***/ 99759:
+/***/ 14696:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.KeylessCertificates = void 0;
+var keyless_certificates_1 = __nccwpck_require__(98171);
+Object.defineProperty(exports, "KeylessCertificates", ({ enumerable: true, get: function () { return keyless_certificates_1.KeylessCertificates; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 98171:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -52857,7 +57834,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class KeylessCertificates extends resource_1.APIResource {
     /**
-     * Create Keyless SSL Configuration
+     * Creates a Keyless SSL configuration that allows SSL/TLS termination without
+     * exposing private keys to Cloudflare. Keys remain on your infrastructure.
      *
      * @example
      * ```ts
@@ -52865,7 +57843,7 @@ class KeylessCertificates extends resource_1.APIResource {
      *   await client.keylessCertificates.create({
      *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     certificate:
-     *       '-----BEGIN CERTIFICATE----- MIIDtTCCAp2gAwIBAgIJAM15n7fdxhRtMA0GCSqGSIb3DQEBBQUAMEUxCzAJBgNV BAYTAlVTMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJbnRlcm5ldCBX aWRnaXRzIFB0eSBMdGQwHhcNMTQwMzExMTkyMTU5WhcNMTQwNDEwMTkyMTU5WjBF MQswCQYDVQQGEwJVUzETMBEGA1UECBMKU29tZS1TdGF0ZTEhMB8GA1UEChMYSW50 ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB CgKCAQEAvq3sKsHpeduJHimOK+fvQdKsI8z8A05MZyyLp2/R/GE8FjNv+hkVY1WQ LIyTNNQH7CJecE1nbTfo8Y56S7x/rhxC6/DJ8MIulapFPnorq46KU6yRxiM0MQ3N nTJHlHA2ozZta6YBBfVfhHWl1F0IfNbXCLKvGwWWMbCx43OfW6KTkbRnE6gFWKuO fSO5h2u5TaWVuSIzBvYs7Vza6m+gtYAvKAJV2nSZ+eSEFPDo29corOy8+huEOUL8 5FAw4BFPsr1TlrlGPFitduQUHGrSL7skk1ESGza0to3bOtrodKei2s9bk5MXm7lZ qI+WZJX4Zu9+mzZhc9pCVi8r/qlXuQIDAQABo4GnMIGkMB0GA1UdDgQWBBRvavf+ sWM4IwKiH9X9w1vl6nUVRDB1BgNVHSMEbjBsgBRvavf+sWM4IwKiH9X9w1vl6nUV RKFJpEcwRTELMAkGA1UEBhMCVVMxEzARBgNVBAgTClNvbWUtU3RhdGUxITAfBgNV BAoTGEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZIIJAM15n7fdxhRtMAwGA1UdEwQF MAMBAf8wDQYJKoZIhvcNAQEFBQADggEBABY2ZzBaW0dMsAAT7tPJzrVWVzQx6KU4 UEBLudIlWPlkAwTnINCWR/8eNjCCmGA4heUdHmazdpPa8RzwOmc0NT1NQqzSyktt vTqb4iHD7+8f9MqJ9/FssCfTtqr/Qst/hGH4Wmdf1EJ/6FqYAAb5iRlPgshFZxU8 uXtA8hWn6fK6eISD9HBdcAFToUvKNZ1BIDPvh9f95Ine8ar6yGd56TUNrHR8eHBs ESxz5ddVR/oWRysNJ+aGAyYqHS8S/ttmC7r4XCAHqXptkHPCGRqkAhsterYhd4I8 /cBzejUobNCjjHFbtkAL/SjxZOLW+pNkZwfeYdM8iPkD54Uua1v2tdw= -----END CERTIFICATE-----',
+     *       '-----BEGIN CERTIFICATE-----\nMIIDtTCCAp2gAwIBAgIJAM15n7fdxhRtMA0GCSqGSIb3DQEBBQUAMEUxCzAJBgNV\nBAYTAlVTMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJbnRlcm5ldCBX\naWRnaXRzIFB0eSBMdGQwHhcNMTQwMzExMTkyMTU5WhcNMTQwNDEwMTkyMTU5WjBF\nMQswCQYDVQQGEwJVUzETMBEGA1UECBMKU29tZS1TdGF0ZTEhMB8GA1UEChMYSW50\nZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB\nCgKCAQEAvq3sKsHpeduJHimOK+fvQdKsI8z8A05MZyyLp2/R/GE8FjNv+hkVY1WQ\nLIyTNNQH7CJecE1nbTfo8Y56S7x/rhxC6/DJ8MIulapFPnorq46KU6yRxiM0MQ3N\nnTJHlHA2ozZta6YBBfVfhHWl1F0IfNbXCLKvGwWWMbCx43OfW6KTkbRnE6gFWKuO\nfSO5h2u5TaWVuSIzBvYs7Vza6m+gtYAvKAJV2nSZ+eSEFPDo29corOy8+huEOUL8\n5FAw4BFPsr1TlrlGPFitduQUHGrSL7skk1ESGza0to3bOtrodKei2s9bk5MXm7lZ\nqI+WZJX4Zu9+mzZhc9pCVi8r/qlXuQIDAQABo4GnMIGkMB0GA1UdDgQWBBRvavf+\nsWM4IwKiH9X9w1vl6nUVRDB1BgNVHSMEbjBsgBRvavf+sWM4IwKiH9X9w1vl6nUV\nRKFJpEcwRTELMAkGA1UEBhMCVVMxEzARBgNVBAgTClNvbWUtU3RhdGUxITAfBgNV\nBAoTGEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZIIJAM15n7fdxhRtMAwGA1UdEwQF\nMAMBAf8wDQYJKoZIhvcNAQEFBQADggEBABY2ZzBaW0dMsAAT7tPJzrVWVzQx6KU4\nUEBLudIlWPlkAwTnINCWR/8eNjCCmGA4heUdHmazdpPa8RzwOmc0NT1NQqzSyktt\nvTqb4iHD7+8f9MqJ9/FssCfTtqr/Qst/hGH4Wmdf1EJ/6FqYAAb5iRlPgshFZxU8\nuXtA8hWn6fK6eISD9HBdcAFToUvKNZ1BIDPvh9f95Ine8ar6yGd56TUNrHR8eHBs\nESxz5ddVR/oWRysNJ+aGAyYqHS8S/ttmC7r4XCAHqXptkHPCGRqkAhsterYhd4I8\n/cBzejUobNCjjHFbtkAL/SjxZOLW+pNkZwfeYdM8iPkD54Uua1v2tdw=\n-----END CERTIFICATE-----',
      *     host: 'example.com',
      *     port: 24008,
      *   });
@@ -52893,7 +57871,8 @@ class KeylessCertificates extends resource_1.APIResource {
         return this._client.getAPIList(`/zones/${zone_id}/keyless_certificates`, KeylessCertificatesSinglePage, options);
     }
     /**
-     * Delete Keyless SSL Configuration
+     * Removes a Keyless SSL configuration. SSL connections will no longer use the
+     * keyless server for cryptographic operations.
      *
      * @example
      * ```ts
@@ -53008,7 +57987,7 @@ KV.NamespacesV4PagePaginationArray = namespaces_1.NamespacesV4PagePaginationArra
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.KeysCursorPaginationAfter = exports.Keys = void 0;
+exports.KeysCursorLimitPagination = exports.Keys = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Keys extends resource_1.APIResource {
@@ -53028,7 +58007,7 @@ class Keys extends resource_1.APIResource {
      */
     list(namespaceId, params, options) {
         const { account_id, ...query } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/storage/kv/namespaces/${namespaceId}/keys`, KeysCursorPaginationAfter, { query, ...options });
+        return this._client.getAPIList(`/accounts/${account_id}/storage/kv/namespaces/${namespaceId}/keys`, KeysCursorLimitPagination, { query, ...options });
     }
     /**
      * Remove multiple KV pairs from the namespace. Body should be an array of up to
@@ -53076,10 +58055,10 @@ class Keys extends resource_1.APIResource {
     }
 }
 exports.Keys = Keys;
-class KeysCursorPaginationAfter extends pagination_1.CursorPaginationAfter {
+class KeysCursorLimitPagination extends pagination_1.CursorLimitPagination {
 }
-exports.KeysCursorPaginationAfter = KeysCursorPaginationAfter;
-Keys.KeysCursorPaginationAfter = KeysCursorPaginationAfter;
+exports.KeysCursorLimitPagination = KeysCursorLimitPagination;
+Keys.KeysCursorLimitPagination = KeysCursorLimitPagination;
 //# sourceMappingURL=keys.js.map
 
 /***/ }),
@@ -53330,7 +58309,7 @@ class NamespacesV4PagePaginationArray extends pagination_1.V4PagePaginationArray
 exports.NamespacesV4PagePaginationArray = NamespacesV4PagePaginationArray;
 Namespaces.NamespacesV4PagePaginationArray = NamespacesV4PagePaginationArray;
 Namespaces.Keys = keys_1.Keys;
-Namespaces.KeysCursorPaginationAfter = keys_1.KeysCursorPaginationAfter;
+Namespaces.KeysCursorLimitPagination = keys_1.KeysCursorLimitPagination;
 Namespaces.Metadata = metadata_1.Metadata;
 Namespaces.Values = values_1.Values;
 //# sourceMappingURL=namespaces.js.map
@@ -53532,6 +58511,22 @@ class Detections extends resource_1.APIResource {
     delete(detectionId, params, options) {
         const { zone_id } = params;
         return this._client.delete(`/zones/${zone_id}/leaked-credential-checks/detections/${detectionId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get user-defined detection pattern for Leaked Credential Checks.
+     *
+     * @example
+     * ```ts
+     * const detection =
+     *   await client.leakedCredentialChecks.detections.get(
+     *     '18a14bafaa8eb1df04ce683ec18c765e',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(detectionId, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/leaked-credential-checks/detections/${detectionId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Detections = Detections;
@@ -56476,8 +61471,10 @@ class Rules extends resource_1.APIResource {
      * const magicNetworkMonitoringRule =
      *   await client.magicNetworkMonitoring.rules.create({
      *     account_id: '6f91088a406011ed95aed352566e8d4c',
-     *     duration: '1m',
+     *     automatic_advertisement: true,
      *     name: 'my_rule_1',
+     *     prefixes: ['203.0.113.1/32'],
+     *     type: 'zscore',
      *   });
      * ```
      */
@@ -56493,8 +61490,10 @@ class Rules extends resource_1.APIResource {
      * const magicNetworkMonitoringRule =
      *   await client.magicNetworkMonitoring.rules.update({
      *     account_id: '6f91088a406011ed95aed352566e8d4c',
-     *     duration: '1m',
+     *     automatic_advertisement: true,
      *     name: 'my_rule_1',
+     *     prefixes: ['203.0.113.1/32'],
+     *     type: 'zscore',
      *   });
      * ```
      */
@@ -56543,7 +61542,13 @@ class Rules extends resource_1.APIResource {
      * const magicNetworkMonitoringRule =
      *   await client.magicNetworkMonitoring.rules.edit(
      *     '2890e6fa406311ed9b5a23f70f6fb8cf',
-     *     { account_id: '6f91088a406011ed95aed352566e8d4c' },
+     *     {
+     *       account_id: '6f91088a406011ed95aed352566e8d4c',
+     *       automatic_advertisement: true,
+     *       name: 'my_rule_1',
+     *       prefixes: ['203.0.113.1/32'],
+     *       type: 'zscore',
+     *     },
      *   );
      * ```
      */
@@ -56940,7 +61945,7 @@ class Connectors extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/magic/connectors`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Replace Connector
+     * Replace Connector or Re-provision License Key
      *
      * @example
      * ```ts
@@ -56972,8 +61977,8 @@ class Connectors extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/magic/connectors`, ConnectorListResponsesSinglePage, options);
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/magic/connectors`, ConnectorListResponsesSinglePage, { query, ...options });
     }
     /**
      * Remove a connector from your account
@@ -56992,7 +61997,7 @@ class Connectors extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/magic/connectors/${connectorId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Edit Connector to update specific properties
+     * Edit Connector to update specific properties or Re-provision License Key
      *
      * @example
      * ```ts
@@ -58277,10 +63282,7 @@ class LANs extends resource_1.APIResource {
      * // Automatically fetches more pages as needed.
      * for await (const lan of client.magicTransit.sites.lans.create(
      *   '023e105f4ecef8ad9ca31a8372d0c353',
-     *   {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     physport: 1,
-     *   },
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * )) {
      *   // ...
      * }
@@ -58699,7 +63701,21 @@ WANs.WANsSinglePage = WANsSinglePage;
 
 /***/ }),
 
-/***/ 95671:
+/***/ 42608:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ManagedTransforms = void 0;
+var managed_transforms_1 = __nccwpck_require__(23931);
+Object.defineProperty(exports, "ManagedTransforms", ({ enumerable: true, get: function () { return managed_transforms_1.ManagedTransforms; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 23931:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -58739,7 +63755,21 @@ exports.ManagedTransforms = ManagedTransforms;
 
 /***/ }),
 
-/***/ 12461:
+/***/ 47958:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Memberships = void 0;
+var memberships_1 = __nccwpck_require__(35899);
+Object.defineProperty(exports, "Memberships", ({ enumerable: true, get: function () { return memberships_1.Memberships; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 35899:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -58887,7 +63917,10 @@ class MTLSCertificates extends resource_1.APIResource {
         this.associations = new AssociationsAPI.Associations(this._client);
     }
     /**
-     * Upload a certificate that you want to use with mTLS-enabled Cloudflare services.
+     * Upload a certificate that you want to use with mTLS-enabled Cloudflare services,
+     * such as Bring Your Own CA (BYO-CA) for mTLS. To create certificates issued by
+     * the Cloudflare managed CA, use the
+     * [Create Client Certificate endpoint](/api/resources/client_certificates/methods/create/).
      *
      * @example
      * ```ts
@@ -58896,7 +63929,7 @@ class MTLSCertificates extends resource_1.APIResource {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     ca: true,
      *     certificates:
-     *       '-----BEGIN CERTIFICATE-----\nMIIDmDCCAoCgAwIBAgIUKTOAZNjcXVZRj4oQt0SHsl1c1vMwDQYJKoZIhvcNAQELBQAwUTELMAkGA1UEBhMCVVMxFjAUBgNVBAgMDVNhbiBGcmFuY2lzY28xEzARBgNVBAcMCkNhbGlmb3JuaWExFTATBgNVBAoMDEV4YW1wbGUgSW5jLjAgFw0yMjExMjIxNjU5NDdaGA8yMTIyMTAyOTE2NTk0N1owUTELMAkGA1UEBhMCVVMxFjAUBgNVBAgMDVNhbiBGcmFuY2lzY28xEzARBgNVBAcMCkNhbGlmb3JuaWExFTATBgNVBAoMDEV4YW1wbGUgSW5jLjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMRcORwgJFTdcG/2GKI+cFYiOBNDKjCZUXEOvXWY42BkH9wxiMT869CO+enA1w5pIrXow6kCM1sQspHHaVmJUlotEMJxyoLFfA/8Kt1EKFyobOjuZs2SwyVyJ2sStvQuUQEosULZCNGZEqoH5g6zhMPxaxm7ZLrrsDZ9maNGVqo7EWLWHrZ57Q/5MtTrbxQL+eXjUmJ9K3kS+3uEwMdqR6Z3BluU1ivanpPc1CN2GNhdO0/hSY4YkGEnuLsqJyDd3cIiB1MxuCBJ4ZaqOd2viV1WcP3oU3dxVPm4MWyfYIldMWB14FahScxLhWdRnM9YZ/i9IFcLypXsuz7DjrJPtPUCAwEAAaNmMGQwHQYDVR0OBBYEFP5JzLUawNF+c3AXsYTEWHh7z2czMB8GA1UdIwQYMBaAFP5JzLUawNF+c3AXsYTEWHh7z2czMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8ECDAGAQH/AgEBMA0GCSqGSIb3DQEBCwUAA4IBAQBc+Be7NDhpE09y7hLPZGRPl1cSKBw4RI0XIv6rlbSTFs5EebpTGjhx/whNxwEZhB9HZ7111Oa1YlT8xkI9DshB78mjAHCKBAJ76moK8tkG0aqdYpJ4ZcJTVBB7l98Rvgc7zfTii7WemTy72deBbSeiEtXavm4EF0mWjHhQ5Nxpnp00Bqn5g1x8CyTDypgmugnep+xG+iFzNmTdsz7WI9T/7kDMXqB7M/FPWBORyS98OJqNDswCLF8bIZYwUBEe+bRHFomoShMzaC3tvim7WCb16noDkSTMlfKO4pnvKhpcVdSgwcruATV7y+W+Lvmz2OT/Gui4JhqeoTewsxndhDDE\n-----END CERTIFICATE-----',
+     *       '-----BEGIN CERTIFICATE-----\nMIIDmDCCAoCgAwIBAgIUKTOAZNjcXVZRj4oQt0SHsl1c1vMwDQYJKoZIhvcNAQEL\nBQAwUTELMAkGA1UEBhMCVVMxFjAUBgNVBAgMDVNhbiBGcmFuY2lzY28xEzARBgNV\nBAcMCkNhbGlmb3JuaWExFTATBgNVBAoMDEV4YW1wbGUgSW5jLjAgFw0yMjExMjIx\nNjU5NDdaGA8yMTIyMTAyOTE2NTk0N1owUTELMAkGA1UEBhMCVVMxFjAUBgNVBAgM\nDVNhbiBGcmFuY2lzY28xEzARBgNVBAcMCkNhbGlmb3JuaWExFTATBgNVBAoMDEV4\nYW1wbGUgSW5jLjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMRcORwg\nJFTdcG/2GKI+cFYiOBNDKjCZUXEOvXWY42BkH9wxiMT869CO+enA1w5pIrXow6kC\nM1sQspHHaVmJUlotEMJxyoLFfA/8Kt1EKFyobOjuZs2SwyVyJ2sStvQuUQEosULZ\nCNGZEqoH5g6zhMPxaxm7ZLrrsDZ9maNGVqo7EWLWHrZ57Q/5MtTrbxQL+eXjUmJ9\nK3kS+3uEwMdqR6Z3BluU1ivanpPc1CN2GNhdO0/hSY4YkGEnuLsqJyDd3cIiB1Mx\nuCBJ4ZaqOd2viV1WcP3oU3dxVPm4MWyfYIldMWB14FahScxLhWdRnM9YZ/i9IFcL\nypXsuz7DjrJPtPUCAwEAAaNmMGQwHQYDVR0OBBYEFP5JzLUawNF+c3AXsYTEWHh7\nz2czMB8GA1UdIwQYMBaAFP5JzLUawNF+c3AXsYTEWHh7z2czMA4GA1UdDwEB/wQE\nAwIBBjASBgNVHRMBAf8ECDAGAQH/AgEBMA0GCSqGSIb3DQEBCwUAA4IBAQBc+Be7\nNDhpE09y7hLPZGRPl1cSKBw4RI0XIv6rlbSTFs5EebpTGjhx/whNxwEZhB9HZ711\n1Oa1YlT8xkI9DshB78mjAHCKBAJ76moK8tkG0aqdYpJ4ZcJTVBB7l98Rvgc7zfTi\ni7WemTy72deBbSeiEtXavm4EF0mWjHhQ5Nxpnp00Bqn5g1x8CyTDypgmugnep+xG\n+iFzNmTdsz7WI9T/7kDMXqB7M/FPWBORyS98OJqNDswCLF8bIZYwUBEe+bRHFomo\nShMzaC3tvim7WCb16noDkSTMlfKO4pnvKhpcVdSgwcruATV7y+W+Lvmz2OT/Gui4\nJhqeoTewsxndhDDE\n-----END CERTIFICATE-----',
      *   });
      * ```
      */
@@ -58908,7 +63941,10 @@ class MTLSCertificates extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Lists all mTLS certificates.
+     * Lists all mTLS certificates uploaded to your account, such as Bring Your Own CA
+     * (BYO-CA) for mTLS. To list certificates issued by the Cloudflare managed CA, use
+     * the
+     * [List Client Certificates endpoint](/api/resources/client_certificates/methods/list/).
      *
      * @example
      * ```ts
@@ -58921,8 +63957,11 @@ class MTLSCertificates extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/mtls_certificates`, MTLSCertificatesSinglePage, options);
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/mtls_certificates`, MTLSCertificatesSinglePage, {
+            query,
+            ...options,
+        });
     }
     /**
      * Deletes the mTLS certificate unless the certificate is in use by one or more
@@ -58942,7 +63981,9 @@ class MTLSCertificates extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/mtls_certificates/${mtlsCertificateId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a single mTLS certificate.
+     * Fetches a single mTLS certificate uploaded to your account. To get a certificate
+     * issued by the Cloudflare managed CA, use the
+     * [Client Certificate Details endpoint](/api/resources/client_certificates/methods/get/).
      *
      * @example
      * ```ts
@@ -59345,7 +64386,220 @@ exports.Slots = Slots;
 
 /***/ }),
 
-/***/ 16406:
+/***/ 83032:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AuditListResponsesCursorPaginationAfter = exports.Audit = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Audit extends resource_1.APIResource {
+    /**
+     * Gets a list of audit logs for an organization.
+     */
+    list(organizationId, query, options) {
+        return this._client.getAPIList(`/organizations/${organizationId}/logs/audit`, AuditListResponsesCursorPaginationAfter, { query, ...options });
+    }
+}
+exports.Audit = Audit;
+class AuditListResponsesCursorPaginationAfter extends pagination_1.CursorPaginationAfter {
+}
+exports.AuditListResponsesCursorPaginationAfter = AuditListResponsesCursorPaginationAfter;
+Audit.AuditListResponsesCursorPaginationAfter = AuditListResponsesCursorPaginationAfter;
+//# sourceMappingURL=audit.js.map
+
+/***/ }),
+
+/***/ 77844:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Logs = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const AuditAPI = __importStar(__nccwpck_require__(83032));
+const audit_1 = __nccwpck_require__(83032);
+class Logs extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.audit = new AuditAPI.Audit(this._client);
+    }
+}
+exports.Logs = Logs;
+Logs.Audit = audit_1.Audit;
+Logs.AuditListResponsesCursorPaginationAfter = audit_1.AuditListResponsesCursorPaginationAfter;
+//# sourceMappingURL=logs.js.map
+
+/***/ }),
+
+/***/ 52400:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OrganizationProfileResource = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class OrganizationProfileResource extends resource_1.APIResource {
+    /**
+     * Modify organization profile. (Currently in Closed Beta - see
+     * https://developers.cloudflare.com/fundamentals/organizations/)
+     */
+    update(organizationId, body, options) {
+        return this._client.put(`/organizations/${organizationId}/profile`, {
+            body,
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    /**
+     * Get an organizations profile if it exists. (Currently in Closed Beta - see
+     * https://developers.cloudflare.com/fundamentals/organizations/)
+     */
+    get(organizationId, options) {
+        return this._client.get(`/organizations/${organizationId}/profile`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.OrganizationProfileResource = OrganizationProfileResource;
+//# sourceMappingURL=organization-profile.js.map
+
+/***/ }),
+
+/***/ 94475:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OrganizationsSinglePage = exports.Organizations = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+const OrganizationProfileAPI = __importStar(__nccwpck_require__(52400));
+const organization_profile_1 = __nccwpck_require__(52400);
+const LogsAPI = __importStar(__nccwpck_require__(77844));
+const logs_1 = __nccwpck_require__(77844);
+const pagination_1 = __nccwpck_require__(30404);
+class Organizations extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.organizationProfile = new OrganizationProfileAPI.OrganizationProfileResource(this._client);
+        this.logs = new LogsAPI.Logs(this._client);
+    }
+    /**
+     * Create a new organization for a user. (Currently in Closed Beta - see
+     * https://developers.cloudflare.com/fundamentals/organizations/)
+     */
+    create(body, options) {
+        return this._client.post('/organizations', { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Modify organization. (Currently in Closed Beta - see
+     * https://developers.cloudflare.com/fundamentals/organizations/)
+     */
+    update(organizationId, body, options) {
+        return this._client.put(`/organizations/${organizationId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    list(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.list({}, query);
+        }
+        return this._client.getAPIList('/organizations', OrganizationsSinglePage, { query, ...options });
+    }
+    /**
+     * Delete an organization. The organization MUST be empty before deleting. It must
+     * not contain any sub-organizations, accounts, members or users. (Currently in
+     * Closed Beta - see https://developers.cloudflare.com/fundamentals/organizations/)
+     */
+    delete(organizationId, options) {
+        return this._client.delete(`/organizations/${organizationId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve the details of a certain organization. (Currently in Closed Beta - see
+     * https://developers.cloudflare.com/fundamentals/organizations/)
+     */
+    get(organizationId, options) {
+        return this._client.get(`/organizations/${organizationId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Organizations = Organizations;
+class OrganizationsSinglePage extends pagination_1.SinglePage {
+}
+exports.OrganizationsSinglePage = OrganizationsSinglePage;
+Organizations.OrganizationsSinglePage = OrganizationsSinglePage;
+Organizations.OrganizationProfileResource = organization_profile_1.OrganizationProfileResource;
+Organizations.Logs = logs_1.Logs;
+//# sourceMappingURL=organizations.js.map
+
+/***/ }),
+
+/***/ 60517:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OriginCACertificates = void 0;
+var origin_ca_certificates_1 = __nccwpck_require__(14977);
+Object.defineProperty(exports, "OriginCACertificates", ({ enumerable: true, get: function () { return origin_ca_certificates_1.OriginCACertificates; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 14977:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -59363,7 +64617,15 @@ class OriginCACertificates extends resource_1.APIResource {
      * @example
      * ```ts
      * const originCACertificate =
-     *   await client.originCACertificates.create();
+     *   await client.originCACertificates.create({
+     *     csr: '-----BEGIN CERTIFICATE REQUEST-----\nMIICxzCCAa8CAQAwSDELMAkGA1UEBhMCVVMxFjAUBgNVBAgTDVNhbiBGcmFuY2lz\nY28xCzAJBgNVBAcTAkNBMRQwEgYDVQQDEwtleGFtcGxlLm5ldDCCASIwDQYJKoZI\nhvcNAQEBBQADggEPADCCAQoCggEBALxejtu4b+jPdFeFi6OUsye8TYJQBm3WfCvL\nHu5EvijMO/4Z2TImwASbwUF7Ir8OLgH+mGlQZeqyNvGoSOMEaZVXcYfpR1hlVak8\n4GGVr+04IGfOCqaBokaBFIwzclGZbzKmLGwIQioNxGfqFm6RGYGA3be2Je2iseBc\nN8GV1wYmvYE0RR+yWweJCTJ157exyRzu7sVxaEW9F87zBQLyOnwXc64rflXslRqi\ng7F7w5IaQYOl8yvmk/jEPCAha7fkiUfEpj4N12+oPRiMvleJF98chxjD4MH39c5I\nuOslULhrWunfh7GB1jwWNA9y44H0snrf+xvoy2TcHmxvma9Eln8CAwEAAaA6MDgG\nCSqGSIb3DQEJDjErMCkwJwYDVR0RBCAwHoILZXhhbXBsZS5uZXSCD3d3dy5leGFt\ncGxlLm5ldDANBgkqhkiG9w0BAQsFAAOCAQEAcBaX6dOnI8ncARrI9ZSF2AJX+8mx\npTHY2+Y2C0VvrVDGMtbBRH8R9yMbqWtlxeeNGf//LeMkSKSFa4kbpdx226lfui8/\nauRDBTJGx2R1ccUxmLZXx4my0W5iIMxunu+kez+BDlu7bTT2io0uXMRHue4i6quH\nyc5ibxvbJMjR7dqbcanVE10/34oprzXQsJ/VmSuZNXtjbtSKDlmcpw6To/eeAJ+J\nhXykcUihvHyG4A1m2R6qpANBjnA0pHexfwM/SgfzvpbvUg0T1ubmer8BgTwCKIWs\ndcWYTthM51JIqRBfNqy4QcBnX+GY05yltEEswQI55wdiS3CjTTA67sdbcQ==\n-----END CERTIFICATE REQUEST-----',
+     *     hostnames: [
+     *       'example.com',
+     *       '*.example.com',
+     *       'sub.example.com',
+     *     ],
+     *     request_type: 'origin-rsa',
+     *   });
      * ```
      */
     create(body, options) {
@@ -59432,7 +64694,21 @@ OriginCACertificates.OriginCACertificatesV4PagePaginationArray = OriginCACertifi
 
 /***/ }),
 
-/***/ 19493:
+/***/ 42382:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OriginPostQuantumEncryption = void 0;
+var origin_post_quantum_encryption_1 = __nccwpck_require__(79335);
+Object.defineProperty(exports, "OriginPostQuantumEncryption", ({ enumerable: true, get: function () { return origin_post_quantum_encryption_1.OriginPostQuantumEncryption; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 79335:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -59475,25 +64751,25 @@ exports.OriginPostQuantumEncryption = OriginPostQuantumEncryption;
 
 /***/ }),
 
-/***/ 22063:
+/***/ 97594:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CertificateListResponsesSinglePage = exports.Certificates = void 0;
+exports.HostnameCertificateListResponsesSinglePage = exports.HostnameCertificates = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
-class Certificates extends resource_1.APIResource {
+class HostnameCertificates extends resource_1.APIResource {
     /**
      * Upload a certificate to be used for client authentication on a hostname. 10
      * hostname certificates per zone are allowed.
      *
      * @example
      * ```ts
-     * const certificate =
-     *   await client.originTLSClientAuth.hostnames.certificates.create(
+     * const hostnameCertificate =
+     *   await client.originTLSClientAuth.hostnameCertificates.create(
      *     {
      *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *       certificate:
@@ -59512,12 +64788,13 @@ class Certificates extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Certificates
+     * Lists all client certificates configured for per-hostname authenticated origin
+     * pulls on the zone.
      *
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const certificateListResponse of client.originTLSClientAuth.hostnames.certificates.list(
+     * for await (const hostnameCertificateListResponse of client.originTLSClientAuth.hostnameCertificates.list(
      *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * )) {
      *   // ...
@@ -59526,15 +64803,19 @@ class Certificates extends resource_1.APIResource {
      */
     list(params, options) {
         const { zone_id } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/origin_tls_client_auth/hostnames/certificates`, CertificateListResponsesSinglePage, options);
+        return this._client.getAPIList(`/zones/${zone_id}/origin_tls_client_auth/hostnames/certificates`, HostnameCertificateListResponsesSinglePage, options);
     }
     /**
-     * Delete Hostname Client Certificate
+     * Removes a client certificate used for authenticated origin pulls on a specific
+     * hostname. Note: Before deleting the certificate, you must first invalidate the
+     * hostname for client authentication by sending a PUT request with `enabled` set
+     * to null. After invalidating the association, the certificate can be safely
+     * deleted.
      *
      * @example
      * ```ts
-     * const certificate =
-     *   await client.originTLSClientAuth.hostnames.certificates.delete(
+     * const hostnameCertificate =
+     *   await client.originTLSClientAuth.hostnameCertificates.delete(
      *     '023e105f4ecef8ad9ca31a8372d0c353',
      *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
@@ -59549,8 +64830,8 @@ class Certificates extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const certificate =
-     *   await client.originTLSClientAuth.hostnames.certificates.get(
+     * const hostnameCertificate =
+     *   await client.originTLSClientAuth.hostnameCertificates.get(
      *     '023e105f4ecef8ad9ca31a8372d0c353',
      *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
@@ -59561,55 +64842,26 @@ class Certificates extends resource_1.APIResource {
         return this._client.get(`/zones/${zone_id}/origin_tls_client_auth/hostnames/certificates/${certificateId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
-exports.Certificates = Certificates;
-class CertificateListResponsesSinglePage extends pagination_1.SinglePage {
+exports.HostnameCertificates = HostnameCertificates;
+class HostnameCertificateListResponsesSinglePage extends pagination_1.SinglePage {
 }
-exports.CertificateListResponsesSinglePage = CertificateListResponsesSinglePage;
-Certificates.CertificateListResponsesSinglePage = CertificateListResponsesSinglePage;
-//# sourceMappingURL=certificates.js.map
+exports.HostnameCertificateListResponsesSinglePage = HostnameCertificateListResponsesSinglePage;
+HostnameCertificates.HostnameCertificateListResponsesSinglePage = HostnameCertificateListResponsesSinglePage;
+//# sourceMappingURL=hostname-certificates.js.map
 
 /***/ }),
 
-/***/ 41509:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ 33128:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.HostnameUpdateResponsesSinglePage = exports.Hostnames = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const CertificatesAPI = __importStar(__nccwpck_require__(22063));
-const certificates_1 = __nccwpck_require__(22063);
 const pagination_1 = __nccwpck_require__(30404);
 class Hostnames extends resource_1.APIResource {
-    constructor() {
-        super(...arguments);
-        this.certificates = new CertificatesAPI.Certificates(this._client);
-    }
     /**
      * Associate a hostname to a certificate and enable, disable or invalidate the
      * association. If disabled, client certificate will not be sent to the hostname
@@ -59635,7 +64887,8 @@ class Hostnames extends resource_1.APIResource {
         return this._client.getAPIList(`/zones/${zone_id}/origin_tls_client_auth/hostnames`, HostnameUpdateResponsesSinglePage, { body, method: 'put', ...options });
     }
     /**
-     * Get the Hostname Status for Client Authentication
+     * Retrieves the client certificate authentication status for a specific hostname,
+     * showing whether authenticated origin pulls are enabled.
      *
      * @example
      * ```ts
@@ -59656,8 +64909,6 @@ class HostnameUpdateResponsesSinglePage extends pagination_1.SinglePage {
 }
 exports.HostnameUpdateResponsesSinglePage = HostnameUpdateResponsesSinglePage;
 Hostnames.HostnameUpdateResponsesSinglePage = HostnameUpdateResponsesSinglePage;
-Hostnames.Certificates = certificates_1.Certificates;
-Hostnames.CertificateListResponsesSinglePage = certificates_1.CertificateListResponsesSinglePage;
 //# sourceMappingURL=hostnames.js.map
 
 /***/ }),
@@ -59694,15 +64945,21 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OriginTLSClientAuthListResponsesSinglePage = exports.OriginTLSClientAuth = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const HostnameCertificatesAPI = __importStar(__nccwpck_require__(97594));
+const hostname_certificates_1 = __nccwpck_require__(97594);
+const HostnamesAPI = __importStar(__nccwpck_require__(33128));
+const hostnames_1 = __nccwpck_require__(33128);
 const SettingsAPI = __importStar(__nccwpck_require__(73933));
 const settings_1 = __nccwpck_require__(73933);
-const HostnamesAPI = __importStar(__nccwpck_require__(41509));
-const hostnames_1 = __nccwpck_require__(41509);
+const ZoneCertificatesAPI = __importStar(__nccwpck_require__(82067));
+const zone_certificates_1 = __nccwpck_require__(82067);
 const pagination_1 = __nccwpck_require__(30404);
 class OriginTLSClientAuth extends resource_1.APIResource {
     constructor() {
         super(...arguments);
+        this.zoneCertificates = new ZoneCertificatesAPI.ZoneCertificates(this._client);
         this.hostnames = new HostnamesAPI.Hostnames(this._client);
+        this.hostnameCertificates = new HostnameCertificatesAPI.HostnameCertificates(this._client);
         this.settings = new SettingsAPI.Settings(this._client);
     }
     /**
@@ -59712,66 +64969,36 @@ class OriginTLSClientAuth extends resource_1.APIResource {
      * zone-level authenticated origin pulls by making a PUT call to settings endpoint
      * to see the uploaded certificate in use.
      *
-     * @example
-     * ```ts
-     * const originTLSClientAuth =
-     *   await client.originTLSClientAuth.create({
-     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     certificate:
-     *       '-----BEGIN CERTIFICATE-----\nMIIDtTCCAp2gAwIBAgIJAMHAwfXZ5/PWMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV\nBAYTAkFVMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJbnRlcm5ldCBX\naWRnaXRzIFB0eSBMdGQwHhcNMTYwODI0MTY0MzAxWhcNMTYxMTIyMTY0MzAxWjBF\nMQswCQYDVQQGEwJBVTETMBEGA1UECBMKU29tZS1TdGF0ZTEhMB8GA1UEChMYSW50\nZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB\nCgKCAQEAwQHoetcl9+5ikGzV6cMzWtWPJHqXT3wpbEkRU9Yz7lgvddmGdtcGbg/1\nCGZu0jJGkMoppoUo4c3dts3iwqRYmBikUP77wwY2QGmDZw2FvkJCJlKnabIRuGvB\nKwzESIXgKk2016aTP6/dAjEHyo6SeoK8lkIySUvK0fyOVlsiEsCmOpidtnKX/a+5\n0GjB79CJH4ER2lLVZnhePFR/zUOyPxZQQ4naHf7yu/b5jhO0f8fwt+pyFxIXjbEI\ndZliWRkRMtzrHOJIhrmJ2A1J7iOrirbbwillwjjNVUWPf3IJ3M12S9pEewooaeO2\nizNTERcG9HzAacbVRn2Y2SWIyT/18QIDAQABo4GnMIGkMB0GA1UdDgQWBBT/LbE4\n9rWf288N6sJA5BRb6FJIGDB1BgNVHSMEbjBsgBT/LbE49rWf288N6sJA5BRb6FJI\nGKFJpEcwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgTClNvbWUtU3RhdGUxITAfBgNV\nBAoTGEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZIIJAMHAwfXZ5/PWMAwGA1UdEwQF\nMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAHHFwl0tH0quUYZYO0dZYt4R7SJ0pCm2\n2satiyzHl4OnXcHDpekAo7/a09c6Lz6AU83cKy/+x3/djYHXWba7HpEu0dR3ugQP\nMlr4zrhd9xKZ0KZKiYmtJH+ak4OM4L3FbT0owUZPyjLSlhMtJVcoRp5CJsjAMBUG\nSvD8RX+T01wzox/Qb+lnnNnOlaWpqu8eoOenybxKp1a9ULzIVvN/LAcc+14vioFq\n2swRWtmocBAs8QR9n4uvbpiYvS8eYueDCWMM4fvFfBhaDZ3N9IbtySh3SpFdQDhw\nYbjM2rxXiyLGxB4Bol7QTv4zHif7Zt89FReT/NBy4rzaskDJY5L6xmY=\n-----END CERTIFICATE-----\n',
-     *     private_key:
-     *       '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAwQHoetcl9+5ikGzV6cMzWtWPJHqXT3wpbEkRU9Yz7lgvddmG\ndtcGbg/1CGZu0jJGkMoppoUo4c3dts3iwqRYmBikUP77wwY2QGmDZw2FvkJCJlKn\nabIRuGvBKwzESIXgKk2016aTP6/dAjEHyo6SeoK8lkIySUvK0fyOVlsiEsCmOpid\ntnKX/a+50GjB79CJH4ER2lLVZnhePFR/zUOyPxZQQ4naHf7yu/b5jhO0f8fwt+py\nFxIXjbEIdZliWRkRMtzrHOJIhrmJ2A1J7iOrirbbwillwjjNVUWPf3IJ3M12S9pE\newooaeO2izNTERcG9HzAacbVRn2Y2SWIyT/18QIDAQABAoIBACbhTYXBZYKmYPCb\nHBR1IBlCQA2nLGf0qRuJNJZg5iEzXows/6tc8YymZkQE7nolapWsQ+upk2y5Xdp/\naxiuprIs9JzkYK8Ox0r+dlwCG1kSW+UAbX0bQ/qUqlsTvU6muVuMP8vZYHxJ3wmb\n+ufRBKztPTQ/rYWaYQcgC0RWI20HTFBMxlTAyNxYNWzX7RKFkGVVyB9RsAtmcc8g\n+j4OdosbfNoJPS0HeIfNpAznDfHKdxDk2Yc1tV6RHBrC1ynyLE9+TaflIAdo2MVv\nKLMLq51GqYKtgJFIlBRPQqKoyXdz3fGvXrTkf/WY9QNq0J1Vk5ERePZ54mN8iZB7\n9lwy/AkCgYEA6FXzosxswaJ2wQLeoYc7ceaweX/SwTvxHgXzRyJIIT0eJWgx13Wo\n/WA3Iziimsjf6qE+SI/8laxPp2A86VMaIt3Z3mJN/CqSVGw8LK2AQst+OwdPyDMu\niacE8lj/IFGC8mwNUAb9CzGU3JpU4PxxGFjS/eMtGeRXCWkK4NE+G08CgYEA1Kp9\nN2JrVlqUz+gAX+LPmE9OEMAS9WQSQsfCHGogIFDGGcNf7+uwBM7GAaSJIP01zcoe\nVAgWdzXCv3FLhsaZoJ6RyLOLay5phbu1iaTr4UNYm5WtYTzMzqh8l1+MFFDl9xDB\nvULuCIIrglM5MeS/qnSg1uMoH2oVPj9TVst/ir8CgYEAxrI7Ws9Zc4Bt70N1As+U\nlySjaEVZCMkqvHJ6TCuVZFfQoE0r0whdLdRLU2PsLFP+q7qaeZQqgBaNSKeVcDYR\n9B+nY/jOmQoPewPVsp/vQTCnE/R81spu0mp0YI6cIheT1Z9zAy322svcc43JaWB7\nmEbeqyLOP4Z4qSOcmghZBSECgYACvR9Xs0DGn+wCsW4vze/2ei77MD4OQvepPIFX\ndFZtlBy5ADcgE9z0cuVB6CiL8DbdK5kwY9pGNr8HUCI03iHkW6Zs+0L0YmihfEVe\nPG19PSzK9CaDdhD9KFZSbLyVFmWfxOt50H7YRTTiPMgjyFpfi5j2q348yVT0tEQS\nfhRqaQKBgAcWPokmJ7EbYQGeMbS7HC8eWO/RyamlnSffdCdSc7ue3zdVJxpAkQ8W\nqu80pEIF6raIQfAf8MXiiZ7auFOSnHQTXUbhCpvDLKi0Mwq3G8Pl07l+2s6dQG6T\nlv6XTQaMyf6n1yjzL+fzDrH3qXMxHMO/b13EePXpDMpY7HQpoLDi\n-----END RSA PRIVATE KEY-----\n',
-     *   });
-     * ```
+     * @deprecated Use zone_certificates.create for zone-level certificates. This method will be removed in a future major version.
      */
     create(params, options) {
         const { zone_id, ...body } = params;
         return this._client.post(`/zones/${zone_id}/origin_tls_client_auth`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List Certificates
+     * Lists all client certificates configured for zone-level authenticated origin
+     * pulls.
      *
-     * @example
-     * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const originTLSClientAuthListResponse of client.originTLSClientAuth.list(
-     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * )) {
-     *   // ...
-     * }
-     * ```
+     * @deprecated Use zone_certificates.list for zone-level certificates. This method will be removed in a future major version.
      */
     list(params, options) {
         const { zone_id } = params;
         return this._client.getAPIList(`/zones/${zone_id}/origin_tls_client_auth`, OriginTLSClientAuthListResponsesSinglePage, options);
     }
     /**
-     * Delete Certificate
+     * Removes a client certificate used for zone-level authenticated origin pulls.
      *
-     * @example
-     * ```ts
-     * const originTLSClientAuth =
-     *   await client.originTLSClientAuth.delete(
-     *     '023e105f4ecef8ad9ca31a8372d0c353',
-     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     *   );
-     * ```
+     * @deprecated Use zone_certificates.delete for zone-level certificates. This method will be removed in a future major version.
      */
     delete(certificateId, params, options) {
         const { zone_id } = params;
         return this._client.delete(`/zones/${zone_id}/origin_tls_client_auth/${certificateId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Certificate Details
+     * Retrieves details for a specific client certificate used in zone-level
+     * authenticated origin pulls.
      *
-     * @example
-     * ```ts
-     * const originTLSClientAuth =
-     *   await client.originTLSClientAuth.get(
-     *     '023e105f4ecef8ad9ca31a8372d0c353',
-     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     *   );
-     * ```
+     * @deprecated Use zone_certificates.get for zone-level certificates. This method will be removed in a future major version.
      */
     get(certificateId, params, options) {
         const { zone_id } = params;
@@ -59783,8 +65010,12 @@ class OriginTLSClientAuthListResponsesSinglePage extends pagination_1.SinglePage
 }
 exports.OriginTLSClientAuthListResponsesSinglePage = OriginTLSClientAuthListResponsesSinglePage;
 OriginTLSClientAuth.OriginTLSClientAuthListResponsesSinglePage = OriginTLSClientAuthListResponsesSinglePage;
+OriginTLSClientAuth.ZoneCertificates = zone_certificates_1.ZoneCertificates;
+OriginTLSClientAuth.ZoneCertificateListResponsesSinglePage = zone_certificates_1.ZoneCertificateListResponsesSinglePage;
 OriginTLSClientAuth.Hostnames = hostnames_1.Hostnames;
 OriginTLSClientAuth.HostnameUpdateResponsesSinglePage = hostnames_1.HostnameUpdateResponsesSinglePage;
+OriginTLSClientAuth.HostnameCertificates = hostname_certificates_1.HostnameCertificates;
+OriginTLSClientAuth.HostnameCertificateListResponsesSinglePage = hostname_certificates_1.HostnameCertificateListResponsesSinglePage;
 OriginTLSClientAuth.Settings = settings_1.Settings;
 //# sourceMappingURL=origin-tls-client-auth.js.map
 
@@ -59843,7 +65074,116 @@ exports.Settings = Settings;
 
 /***/ }),
 
-/***/ 97927:
+/***/ 82067:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ZoneCertificateListResponsesSinglePage = exports.ZoneCertificates = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class ZoneCertificates extends resource_1.APIResource {
+    /**
+     * Upload your own certificate you want Cloudflare to use for edge-to-origin
+     * communication to override the shared certificate. Please note that it is
+     * important to keep only one certificate active. Also, make sure to enable
+     * zone-level authenticated origin pulls by making a PUT call to settings endpoint
+     * to see the uploaded certificate in use.
+     *
+     * @example
+     * ```ts
+     * const zoneCertificate =
+     *   await client.originTLSClientAuth.zoneCertificates.create({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     certificate:
+     *       '-----BEGIN CERTIFICATE-----\nMIIDtTCCAp2gAwIBAgIJAMHAwfXZ5/PWMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV\nBAYTAkFVMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJbnRlcm5ldCBX\naWRnaXRzIFB0eSBMdGQwHhcNMTYwODI0MTY0MzAxWhcNMTYxMTIyMTY0MzAxWjBF\nMQswCQYDVQQGEwJBVTETMBEGA1UECBMKU29tZS1TdGF0ZTEhMB8GA1UEChMYSW50\nZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB\nCgKCAQEAwQHoetcl9+5ikGzV6cMzWtWPJHqXT3wpbEkRU9Yz7lgvddmGdtcGbg/1\nCGZu0jJGkMoppoUo4c3dts3iwqRYmBikUP77wwY2QGmDZw2FvkJCJlKnabIRuGvB\nKwzESIXgKk2016aTP6/dAjEHyo6SeoK8lkIySUvK0fyOVlsiEsCmOpidtnKX/a+5\n0GjB79CJH4ER2lLVZnhePFR/zUOyPxZQQ4naHf7yu/b5jhO0f8fwt+pyFxIXjbEI\ndZliWRkRMtzrHOJIhrmJ2A1J7iOrirbbwillwjjNVUWPf3IJ3M12S9pEewooaeO2\nizNTERcG9HzAacbVRn2Y2SWIyT/18QIDAQABo4GnMIGkMB0GA1UdDgQWBBT/LbE4\n9rWf288N6sJA5BRb6FJIGDB1BgNVHSMEbjBsgBT/LbE49rWf288N6sJA5BRb6FJI\nGKFJpEcwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgTClNvbWUtU3RhdGUxITAfBgNV\nBAoTGEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZIIJAMHAwfXZ5/PWMAwGA1UdEwQF\nMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAHHFwl0tH0quUYZYO0dZYt4R7SJ0pCm2\n2satiyzHl4OnXcHDpekAo7/a09c6Lz6AU83cKy/+x3/djYHXWba7HpEu0dR3ugQP\nMlr4zrhd9xKZ0KZKiYmtJH+ak4OM4L3FbT0owUZPyjLSlhMtJVcoRp5CJsjAMBUG\nSvD8RX+T01wzox/Qb+lnnNnOlaWpqu8eoOenybxKp1a9ULzIVvN/LAcc+14vioFq\n2swRWtmocBAs8QR9n4uvbpiYvS8eYueDCWMM4fvFfBhaDZ3N9IbtySh3SpFdQDhw\nYbjM2rxXiyLGxB4Bol7QTv4zHif7Zt89FReT/NBy4rzaskDJY5L6xmY=\n-----END CERTIFICATE-----\n',
+     *     private_key:
+     *       '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAwQHoetcl9+5ikGzV6cMzWtWPJHqXT3wpbEkRU9Yz7lgvddmG\ndtcGbg/1CGZu0jJGkMoppoUo4c3dts3iwqRYmBikUP77wwY2QGmDZw2FvkJCJlKn\nabIRuGvBKwzESIXgKk2016aTP6/dAjEHyo6SeoK8lkIySUvK0fyOVlsiEsCmOpid\ntnKX/a+50GjB79CJH4ER2lLVZnhePFR/zUOyPxZQQ4naHf7yu/b5jhO0f8fwt+py\nFxIXjbEIdZliWRkRMtzrHOJIhrmJ2A1J7iOrirbbwillwjjNVUWPf3IJ3M12S9pE\newooaeO2izNTERcG9HzAacbVRn2Y2SWIyT/18QIDAQABAoIBACbhTYXBZYKmYPCb\nHBR1IBlCQA2nLGf0qRuJNJZg5iEzXows/6tc8YymZkQE7nolapWsQ+upk2y5Xdp/\naxiuprIs9JzkYK8Ox0r+dlwCG1kSW+UAbX0bQ/qUqlsTvU6muVuMP8vZYHxJ3wmb\n+ufRBKztPTQ/rYWaYQcgC0RWI20HTFBMxlTAyNxYNWzX7RKFkGVVyB9RsAtmcc8g\n+j4OdosbfNoJPS0HeIfNpAznDfHKdxDk2Yc1tV6RHBrC1ynyLE9+TaflIAdo2MVv\nKLMLq51GqYKtgJFIlBRPQqKoyXdz3fGvXrTkf/WY9QNq0J1Vk5ERePZ54mN8iZB7\n9lwy/AkCgYEA6FXzosxswaJ2wQLeoYc7ceaweX/SwTvxHgXzRyJIIT0eJWgx13Wo\n/WA3Iziimsjf6qE+SI/8laxPp2A86VMaIt3Z3mJN/CqSVGw8LK2AQst+OwdPyDMu\niacE8lj/IFGC8mwNUAb9CzGU3JpU4PxxGFjS/eMtGeRXCWkK4NE+G08CgYEA1Kp9\nN2JrVlqUz+gAX+LPmE9OEMAS9WQSQsfCHGogIFDGGcNf7+uwBM7GAaSJIP01zcoe\nVAgWdzXCv3FLhsaZoJ6RyLOLay5phbu1iaTr4UNYm5WtYTzMzqh8l1+MFFDl9xDB\nvULuCIIrglM5MeS/qnSg1uMoH2oVPj9TVst/ir8CgYEAxrI7Ws9Zc4Bt70N1As+U\nlySjaEVZCMkqvHJ6TCuVZFfQoE0r0whdLdRLU2PsLFP+q7qaeZQqgBaNSKeVcDYR\n9B+nY/jOmQoPewPVsp/vQTCnE/R81spu0mp0YI6cIheT1Z9zAy322svcc43JaWB7\nmEbeqyLOP4Z4qSOcmghZBSECgYACvR9Xs0DGn+wCsW4vze/2ei77MD4OQvepPIFX\ndFZtlBy5ADcgE9z0cuVB6CiL8DbdK5kwY9pGNr8HUCI03iHkW6Zs+0L0YmihfEVe\nPG19PSzK9CaDdhD9KFZSbLyVFmWfxOt50H7YRTTiPMgjyFpfi5j2q348yVT0tEQS\nfhRqaQKBgAcWPokmJ7EbYQGeMbS7HC8eWO/RyamlnSffdCdSc7ue3zdVJxpAkQ8W\nqu80pEIF6raIQfAf8MXiiZ7auFOSnHQTXUbhCpvDLKi0Mwq3G8Pl07l+2s6dQG6T\nlv6XTQaMyf6n1yjzL+fzDrH3qXMxHMO/b13EePXpDMpY7HQpoLDi\n-----END RSA PRIVATE KEY-----\n',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/origin_tls_client_auth`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all client certificates configured for zone-level authenticated origin
+     * pulls.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const zoneCertificateListResponse of client.originTLSClientAuth.zoneCertificates.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { zone_id } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/origin_tls_client_auth`, ZoneCertificateListResponsesSinglePage, options);
+    }
+    /**
+     * Removes a client certificate used for zone-level authenticated origin pulls.
+     *
+     * @example
+     * ```ts
+     * const zoneCertificate =
+     *   await client.originTLSClientAuth.zoneCertificates.delete(
+     *     '023e105f4ecef8ad9ca31a8372d0c353',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(certificateId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/origin_tls_client_auth/${certificateId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves details for a specific client certificate used in zone-level
+     * authenticated origin pulls.
+     *
+     * @example
+     * ```ts
+     * const zoneCertificate =
+     *   await client.originTLSClientAuth.zoneCertificates.get(
+     *     '023e105f4ecef8ad9ca31a8372d0c353',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(certificateId, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/origin_tls_client_auth/${certificateId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.ZoneCertificates = ZoneCertificates;
+class ZoneCertificateListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.ZoneCertificateListResponsesSinglePage = ZoneCertificateListResponsesSinglePage;
+ZoneCertificates.ZoneCertificateListResponsesSinglePage = ZoneCertificateListResponsesSinglePage;
+//# sourceMappingURL=zone-certificates.js.map
+
+/***/ }),
+
+/***/ 11904:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PageRules = void 0;
+var page_rules_1 = __nccwpck_require__(46291);
+Object.defineProperty(exports, "PageRules", ({ enumerable: true, get: function () { return page_rules_1.PageRules; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 46291:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -60382,7 +65722,7 @@ class Pages extends resource_1.APIResource {
 }
 exports.Pages = Pages;
 Pages.Projects = projects_1.Projects;
-Pages.DeploymentsSinglePage = projects_1.DeploymentsSinglePage;
+Pages.ProjectsV4PagePaginationArray = projects_1.ProjectsV4PagePaginationArray;
 //# sourceMappingURL=pages.js.map
 
 /***/ }),
@@ -60417,11 +65757,11 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DeploymentsSinglePage = exports.Deployments = void 0;
+exports.DeploymentsV4PagePaginationArray = exports.Deployments = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const Core = __importStar(__nccwpck_require__(75487));
 const projects_1 = __nccwpck_require__(12010);
-Object.defineProperty(exports, "DeploymentsSinglePage", ({ enumerable: true, get: function () { return projects_1.DeploymentsSinglePage; } }));
+Object.defineProperty(exports, "DeploymentsV4PagePaginationArray", ({ enumerable: true, get: function () { return projects_1.DeploymentsV4PagePaginationArray; } }));
 const HistoryAPI = __importStar(__nccwpck_require__(92422));
 const history_1 = __nccwpck_require__(92422);
 class Deployments extends resource_1.APIResource {
@@ -60462,7 +65802,7 @@ class Deployments extends resource_1.APIResource {
      */
     list(projectName, params, options) {
         const { account_id, ...query } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/pages/projects/${projectName}/deployments`, projects_1.DeploymentsSinglePage, { query, ...options });
+        return this._client.getAPIList(`/accounts/${account_id}/pages/projects/${projectName}/deployments`, projects_1.DeploymentsV4PagePaginationArray, { query, ...options });
     }
     /**
      * Delete a deployment.
@@ -60478,8 +65818,8 @@ class Deployments extends resource_1.APIResource {
      * ```
      */
     delete(projectName, deploymentId, params, options) {
-        const { account_id } = params;
-        return this._client.delete(`/accounts/${account_id}/pages/projects/${projectName}/deployments/${deploymentId}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, force } = params;
+        return this._client.delete(`/accounts/${account_id}/pages/projects/${projectName}/deployments/${deploymentId}`, { query: { force }, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Fetch information about a deployment.
@@ -60507,16 +65847,13 @@ class Deployments extends resource_1.APIResource {
      *   await client.pages.projects.deployments.retry(
      *     'this-is-my-project-01',
      *     '023e105f4ecef8ad9ca31a8372d0c353',
-     *     {
-     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *       body: {},
-     *     },
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
     retry(projectName, deploymentId, params, options) {
-        const { account_id, body } = params;
-        return this._client.post(`/accounts/${account_id}/pages/projects/${projectName}/deployments/${deploymentId}/retry`, { body: body, ...options })._thenUnwrap((obj) => obj.result);
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/pages/projects/${projectName}/deployments/${deploymentId}/retry`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
      * Rollback the production deployment to a previous deployment. You can only
@@ -60528,16 +65865,13 @@ class Deployments extends resource_1.APIResource {
      *   await client.pages.projects.deployments.rollback(
      *     'this-is-my-project-01',
      *     '023e105f4ecef8ad9ca31a8372d0c353',
-     *     {
-     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *       body: {},
-     *     },
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      *   );
      * ```
      */
     rollback(projectName, deploymentId, params, options) {
-        const { account_id, body } = params;
-        return this._client.post(`/accounts/${account_id}/pages/projects/${projectName}/deployments/${deploymentId}/rollback`, { body: body, ...options })._thenUnwrap((obj) => obj.result);
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/pages/projects/${projectName}/deployments/${deploymentId}/rollback`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Deployments = Deployments;
@@ -60643,7 +65977,10 @@ class Domains extends resource_1.APIResource {
      * ```ts
      * const domain = await client.pages.projects.domains.create(
      *   'this-is-my-project-01',
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     name: 'this-is-my-domain-01.com',
+     *   },
      * );
      * ```
      */
@@ -60696,19 +66033,13 @@ class Domains extends resource_1.APIResource {
      * const response = await client.pages.projects.domains.edit(
      *   'this-is-my-project-01',
      *   'this-is-my-domain-01.com',
-     *   {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: {},
-     *   },
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
      */
     edit(projectName, domainName, params, options) {
-        const { account_id, body } = params;
-        return this._client.patch(`/accounts/${account_id}/pages/projects/${projectName}/domains/${domainName}`, {
-            body: body,
-            ...options,
-        })._thenUnwrap((obj) => obj.result);
+        const { account_id } = params;
+        return this._client.patch(`/accounts/${account_id}/pages/projects/${projectName}/domains/${domainName}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
      * Fetch a single domain.
@@ -60766,7 +66097,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DeploymentsSinglePage = exports.Projects = void 0;
+exports.DeploymentsV4PagePaginationArray = exports.ProjectsV4PagePaginationArray = exports.Projects = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const DomainsAPI = __importStar(__nccwpck_require__(15115));
 const domains_1 = __nccwpck_require__(15115);
@@ -60786,6 +66117,8 @@ class Projects extends resource_1.APIResource {
      * ```ts
      * const project = await client.pages.projects.create({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   name: 'my-pages-app',
+     *   production_branch: 'main',
      * });
      * ```
      */
@@ -60799,7 +66132,7 @@ class Projects extends resource_1.APIResource {
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const deployment of client.pages.projects.list({
+     * for await (const project of client.pages.projects.list({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      * })) {
      *   // ...
@@ -60807,8 +66140,11 @@ class Projects extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/pages/projects`, DeploymentsSinglePage, options);
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/pages/projects`, ProjectsV4PagePaginationArray, {
+            query,
+            ...options,
+        });
     }
     /**
      * Delete a project by name.
@@ -60877,10 +66213,13 @@ class Projects extends resource_1.APIResource {
     }
 }
 exports.Projects = Projects;
-class DeploymentsSinglePage extends pagination_1.SinglePage {
+class ProjectsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
-exports.DeploymentsSinglePage = DeploymentsSinglePage;
-Projects.DeploymentsSinglePage = DeploymentsSinglePage;
+exports.ProjectsV4PagePaginationArray = ProjectsV4PagePaginationArray;
+class DeploymentsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.DeploymentsV4PagePaginationArray = DeploymentsV4PagePaginationArray;
+Projects.ProjectsV4PagePaginationArray = ProjectsV4PagePaginationArray;
 Projects.Deployments = deployments_1.Deployments;
 Projects.Domains = domains_1.Domains;
 Projects.DomainListResponsesSinglePage = domains_1.DomainListResponsesSinglePage;
@@ -60888,66 +66227,64 @@ Projects.DomainListResponsesSinglePage = domains_1.DomainListResponsesSinglePage
 
 /***/ }),
 
-/***/ 22275:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+/***/ 39595:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Pipelines = void 0;
+exports.PipelineListV1ResponsesV4PagePaginationArray = exports.Pipelines = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const SinksAPI = __importStar(__nccwpck_require__(66900));
+const sinks_1 = __nccwpck_require__(66900);
+const StreamsAPI = __importStar(__nccwpck_require__(78961));
+const streams_1 = __nccwpck_require__(78961);
+const pagination_1 = __nccwpck_require__(30404);
 class Pipelines extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.sinks = new SinksAPI.Sinks(this._client);
+        this.streams = new StreamsAPI.Streams(this._client);
+    }
     /**
-     * Create a new pipeline.
+     * [DEPRECATED] Create a new pipeline. Use the new /pipelines/v1/pipelines endpoint
+     * instead.
      *
-     * @example
-     * ```ts
-     * const pipeline = await client.pipelines.create({
-     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   destination: {
-     *     batch: {},
-     *     compression: {},
-     *     credentials: {
-     *       access_key_id: '<access key id>',
-     *       endpoint:
-     *         'https://123f8a8258064ed892a347f173372359.r2.cloudflarestorage.com',
-     *       secret_access_key: '<secret key>',
-     *     },
-     *     format: 'json',
-     *     path: { bucket: 'bucket' },
-     *     type: 'r2',
-     *   },
-     *   name: 'sample_pipeline',
-     *   source: [{ format: 'json', type: 'type' }],
-     * });
-     * ```
+     * @deprecated Use create_v1 instead. This endpoint will be removed in the future.
      */
     create(params, options) {
         const { account_id, ...body } = params;
         return this._client.post(`/accounts/${account_id}/pipelines`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update an existing pipeline.
+     * [DEPRECATED] Update an existing pipeline. Use the new /pipelines/v1/pipelines
+     * endpoint instead.
      *
-     * @example
-     * ```ts
-     * const pipeline = await client.pipelines.update(
-     *   'sample_pipeline',
-     *   {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     destination: {
-     *       batch: {},
-     *       compression: {},
-     *       format: 'json',
-     *       path: { bucket: 'bucket' },
-     *       type: 'r2',
-     *     },
-     *     name: 'sample_pipeline',
-     *     source: [{ format: 'json', type: 'type' }],
-     *   },
-     * );
-     * ```
+     * @deprecated The v1 API does not support updates. This endpoint will be removed in the future.
      */
     update(pipelineName, params, options) {
         const { account_id, ...body } = params;
@@ -60957,28 +66294,20 @@ class Pipelines extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List, filter, and paginate pipelines in an account.
+     * [DEPRECATED] List, filter, and paginate pipelines in an account. Use the new
+     * /pipelines/v1/pipelines endpoint instead.
      *
-     * @example
-     * ```ts
-     * const pipelines = await client.pipelines.list({
-     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     * });
-     * ```
+     * @deprecated Use list_v1 instead. This endpoint will be removed in the future.
      */
     list(params, options) {
         const { account_id, ...query } = params;
         return this._client.get(`/accounts/${account_id}/pipelines`, { query, ...options });
     }
     /**
-     * Delete a pipeline.
+     * [DEPRECATED] Delete a pipeline. Use the new /pipelines/v1/pipelines endpoint
+     * instead.
      *
-     * @example
-     * ```ts
-     * await client.pipelines.delete('sample_pipeline', {
-     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     * });
-     * ```
+     * @deprecated Use delete_v1 instead. This endpoint will be removed in the future.
      */
     delete(pipelineName, params, options) {
         const { account_id } = params;
@@ -60988,23 +66317,307 @@ class Pipelines extends resource_1.APIResource {
         });
     }
     /**
-     * Get configuration of a pipeline.
+     * Create a new Pipeline.
      *
      * @example
      * ```ts
-     * const pipeline = await client.pipelines.get(
-     *   'sample_pipeline',
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * const response = await client.pipelines.createV1({
+     *   account_id: '0123105f4ecef8ad9ca31a8372d0c353',
+     *   name: 'my_pipeline',
+     *   sql: 'insert into sink select * from source;',
+     * });
+     * ```
+     */
+    createV1(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/pipelines/v1/pipelines`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Delete Pipeline in Account.
+     *
+     * @example
+     * ```ts
+     * const response = await client.pipelines.deleteV1(
+     *   '043e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
+     */
+    deleteV1(pipelineId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/pipelines/v1/pipelines/${pipelineId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * [DEPRECATED] Get configuration of a pipeline. Use the new
+     * /pipelines/v1/pipelines endpoint instead.
+     *
+     * @deprecated Use get_v1 instead. This endpoint will be removed in the future.
      */
     get(pipelineName, params, options) {
         const { account_id } = params;
         return this._client.get(`/accounts/${account_id}/pipelines/${pipelineName}`, options)._thenUnwrap((obj) => obj.result);
     }
+    /**
+     * Get Pipelines Details.
+     *
+     * @example
+     * ```ts
+     * const response = await client.pipelines.getV1(
+     *   '043e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    getV1(pipelineId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/pipelines/v1/pipelines/${pipelineId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List/Filter Pipelines in Account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const pipelineListV1Response of client.pipelines.listV1(
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    listV1(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/pipelines/v1/pipelines`, PipelineListV1ResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Validate Arroyo SQL.
+     *
+     * @example
+     * ```ts
+     * const response = await client.pipelines.validateSql({
+     *   account_id: '0123105f4ecef8ad9ca31a8372d0c353',
+     *   sql: 'insert into sink select * from source;',
+     * });
+     * ```
+     */
+    validateSql(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/pipelines/v1/validate_sql`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
 }
 exports.Pipelines = Pipelines;
+class PipelineListV1ResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.PipelineListV1ResponsesV4PagePaginationArray = PipelineListV1ResponsesV4PagePaginationArray;
+Pipelines.PipelineListV1ResponsesV4PagePaginationArray = PipelineListV1ResponsesV4PagePaginationArray;
+Pipelines.Sinks = sinks_1.Sinks;
+Pipelines.SinkListResponsesV4PagePaginationArray = sinks_1.SinkListResponsesV4PagePaginationArray;
+Pipelines.Streams = streams_1.Streams;
+Pipelines.StreamListResponsesV4PagePaginationArray = streams_1.StreamListResponsesV4PagePaginationArray;
 //# sourceMappingURL=pipelines.js.map
+
+/***/ }),
+
+/***/ 66900:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SinkListResponsesV4PagePaginationArray = exports.Sinks = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Sinks extends resource_1.APIResource {
+    /**
+     * Create a new Sink.
+     *
+     * @example
+     * ```ts
+     * const sink = await client.pipelines.sinks.create({
+     *   account_id: '0123105f4ecef8ad9ca31a8372d0c353',
+     *   name: 'my_sink',
+     *   type: 'r2',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/pipelines/v1/sinks`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List/Filter Sinks in Account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const sinkListResponse of client.pipelines.sinks.list(
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/pipelines/v1/sinks`, SinkListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete Pipeline in Account.
+     *
+     * @example
+     * ```ts
+     * const sink = await client.pipelines.sinks.delete(
+     *   '0223105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(sinkId, params, options) {
+        const { account_id, force } = params;
+        return this._client.delete(`/accounts/${account_id}/pipelines/v1/sinks/${sinkId}`, {
+            query: { force },
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get Sink Details.
+     *
+     * @example
+     * ```ts
+     * const sink = await client.pipelines.sinks.get(
+     *   '0223105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(sinkId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/pipelines/v1/sinks/${sinkId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Sinks = Sinks;
+class SinkListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.SinkListResponsesV4PagePaginationArray = SinkListResponsesV4PagePaginationArray;
+Sinks.SinkListResponsesV4PagePaginationArray = SinkListResponsesV4PagePaginationArray;
+//# sourceMappingURL=sinks.js.map
+
+/***/ }),
+
+/***/ 78961:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StreamListResponsesV4PagePaginationArray = exports.Streams = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Streams extends resource_1.APIResource {
+    /**
+     * Create a new Stream.
+     *
+     * @example
+     * ```ts
+     * const stream = await client.pipelines.streams.create({
+     *   account_id: '0123105f4ecef8ad9ca31a8372d0c353',
+     *   name: 'my_stream',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/pipelines/v1/streams`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update a Stream.
+     *
+     * @example
+     * ```ts
+     * const stream = await client.pipelines.streams.update(
+     *   '033e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    update(streamId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/pipelines/v1/streams/${streamId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List/Filter Streams in Account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const streamListResponse of client.pipelines.streams.list(
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/pipelines/v1/streams`, StreamListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete Stream in Account.
+     *
+     * @example
+     * ```ts
+     * const stream = await client.pipelines.streams.delete(
+     *   '033e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(streamId, params, options) {
+        const { account_id, force } = params;
+        return this._client.delete(`/accounts/${account_id}/pipelines/v1/streams/${streamId}`, {
+            query: { force },
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get Stream Details.
+     *
+     * @example
+     * ```ts
+     * const stream = await client.pipelines.streams.get(
+     *   '033e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '0123105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(streamId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/pipelines/v1/streams/${streamId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Streams = Streams;
+class StreamListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.StreamListResponsesV4PagePaginationArray = StreamListResponsesV4PagePaginationArray;
+Streams.StreamListResponsesV4PagePaginationArray = StreamListResponsesV4PagePaginationArray;
+//# sourceMappingURL=streams.js.map
 
 /***/ }),
 
@@ -61026,7 +66639,11 @@ class Consumers extends resource_1.APIResource {
      * ```ts
      * const consumer = await client.queues.consumers.create(
      *   '023e105f4ecef8ad9ca31a8372d0c353',
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     script_name: 'my-consumer-worker',
+     *     type: 'worker',
+     *   },
      * );
      * ```
      */
@@ -61045,7 +66662,11 @@ class Consumers extends resource_1.APIResource {
      * const consumer = await client.queues.consumers.update(
      *   '023e105f4ecef8ad9ca31a8372d0c353',
      *   '023e105f4ecef8ad9ca31a8372d0c353',
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     script_name: 'my-consumer-worker',
+     *     type: 'worker',
+     *   },
      * );
      * ```
      */
@@ -61160,7 +66781,7 @@ class Messages extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/queues/${queueId}/messages/batch`, {
             body,
             ...options,
-        });
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Pull a batch of messages from a Queue
@@ -61193,7 +66814,10 @@ class Messages extends resource_1.APIResource {
      */
     push(queueId, params, options) {
         const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/queues/${queueId}/messages`, { body, ...options });
+        return this._client.post(`/accounts/${account_id}/queues/${queueId}/messages`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Messages = Messages;
@@ -61396,6 +67020,22 @@ class Queues extends resource_1.APIResource {
         const { account_id } = params;
         return this._client.get(`/accounts/${account_id}/queues/${queueId}`, options)._thenUnwrap((obj) => obj.result);
     }
+    /**
+     * Return best-effort metrics for a queue. Values may be approximate due to the
+     * distributed nature of queues.
+     *
+     * @example
+     * ```ts
+     * const response = await client.queues.getMetrics(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    getMetrics(queueId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/queues/${queueId}/metrics`, options)._thenUnwrap((obj) => obj.result);
+    }
 }
 exports.Queues = Queues;
 class QueuesSinglePage extends pagination_1.SinglePage {
@@ -61493,6 +67133,21 @@ class Subscriptions extends resource_1.APIResource {
         const { account_id } = params;
         return this._client.delete(`/accounts/${account_id}/event_subscriptions/subscriptions/${subscriptionId}`, options)._thenUnwrap((obj) => obj.result);
     }
+    /**
+     * Get details about an existing event subscription
+     *
+     * @example
+     * ```ts
+     * const subscription = await client.queues.subscriptions.get(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(subscriptionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/event_subscriptions/subscriptions/${subscriptionId}`, options)._thenUnwrap((obj) => obj.result);
+    }
 }
 exports.Subscriptions = Subscriptions;
 class SubscriptionListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
@@ -61500,6 +67155,428 @@ class SubscriptionListResponsesV4PagePaginationArray extends pagination_1.V4Page
 exports.SubscriptionListResponsesV4PagePaginationArray = SubscriptionListResponsesV4PagePaginationArray;
 Subscriptions.SubscriptionListResponsesV4PagePaginationArray = SubscriptionListResponsesV4PagePaginationArray;
 //# sourceMappingURL=subscriptions.js.map
+
+/***/ }),
+
+/***/ 6880:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Credentials = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Credentials extends resource_1.APIResource {
+    /**
+     * Store authentication credentials for a catalog. These credentials are used to
+     * authenticate with R2 storage when performing catalog operations.
+     *
+     * @example
+     * ```ts
+     * const credential =
+     *   await client.r2DataCatalog.credentials.create(
+     *     'my-data-bucket',
+     *     {
+     *       account_id: '0123456789abcdef0123456789abcdef',
+     *       token: 'your-cloudflare-api-token-here',
+     *     },
+     *   );
+     * ```
+     */
+    create(bucketName, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/r2-catalog/${bucketName}/credential`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Credentials = Credentials;
+//# sourceMappingURL=credentials.js.map
+
+/***/ }),
+
+/***/ 91411:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MaintenanceConfigs = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class MaintenanceConfigs extends resource_1.APIResource {
+    /**
+     * Update the maintenance configuration for a catalog. This allows you to enable or
+     * disable compaction and adjust target file sizes for optimization.
+     *
+     * @example
+     * ```ts
+     * const maintenanceConfig =
+     *   await client.r2DataCatalog.maintenanceConfigs.update(
+     *     'my-data-bucket',
+     *     {
+     *       account_id: '0123456789abcdef0123456789abcdef',
+     *       compaction: {
+     *         state: 'enabled',
+     *         target_size_mb: '256',
+     *       },
+     *       snapshot_expiration: {
+     *         max_snapshot_age: '14d',
+     *         min_snapshots_to_keep: 5,
+     *         state: 'enabled',
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    update(bucketName, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/r2-catalog/${bucketName}/maintenance-configs`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve the maintenance configuration for a specific catalog, including
+     * compaction settings and credential status.
+     *
+     * @example
+     * ```ts
+     * const maintenanceConfig =
+     *   await client.r2DataCatalog.maintenanceConfigs.get(
+     *     'my-data-bucket',
+     *     { account_id: '0123456789abcdef0123456789abcdef' },
+     *   );
+     * ```
+     */
+    get(bucketName, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/r2-catalog/${bucketName}/maintenance-configs`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.MaintenanceConfigs = MaintenanceConfigs;
+//# sourceMappingURL=maintenance-configs.js.map
+
+/***/ }),
+
+/***/ 64411:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Namespaces = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const TablesAPI = __importStar(__nccwpck_require__(49416));
+const tables_1 = __nccwpck_require__(49416);
+class Namespaces extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.tables = new TablesAPI.Tables(this._client);
+    }
+    /**
+     * Returns a list of namespaces in the specified R2 catalog. Supports hierarchical
+     * filtering and pagination for efficient traversal of large namespace hierarchies.
+     *
+     * @example
+     * ```ts
+     * const namespaces =
+     *   await client.r2DataCatalog.namespaces.list(
+     *     'my-data-bucket',
+     *     { account_id: '0123456789abcdef0123456789abcdef' },
+     *   );
+     * ```
+     */
+    list(bucketName, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/r2-catalog/${bucketName}/namespaces`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Namespaces = Namespaces;
+Namespaces.Tables = tables_1.Tables;
+//# sourceMappingURL=namespaces.js.map
+
+/***/ }),
+
+/***/ 50056:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MaintenanceConfigs = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class MaintenanceConfigs extends resource_1.APIResource {
+    /**
+     * Update the maintenance configuration for a specific table. This allows you to
+     * enable or disable compaction and adjust target file sizes for optimization.
+     *
+     * @example
+     * ```ts
+     * const maintenanceConfig =
+     *   await client.r2DataCatalog.namespaces.tables.maintenanceConfigs.update(
+     *     'my-data-bucket',
+     *     'my_namespace%1Fsub_namespace',
+     *     'my_table',
+     *     {
+     *       account_id: '0123456789abcdef0123456789abcdef',
+     *       compaction: {
+     *         state: 'enabled',
+     *         target_size_mb: '256',
+     *       },
+     *       snapshot_expiration: {
+     *         max_snapshot_age: '14d',
+     *         min_snapshots_to_keep: 5,
+     *         state: 'enabled',
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    update(bucketName, namespace, tableName, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/r2-catalog/${bucketName}/namespaces/${namespace}/tables/${tableName}/maintenance-configs`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve the maintenance configuration for a specific table, including
+     * compaction settings.
+     *
+     * @example
+     * ```ts
+     * const maintenanceConfig =
+     *   await client.r2DataCatalog.namespaces.tables.maintenanceConfigs.get(
+     *     'my-data-bucket',
+     *     'my_namespace%1Fsub_namespace',
+     *     'my_table',
+     *     { account_id: '0123456789abcdef0123456789abcdef' },
+     *   );
+     * ```
+     */
+    get(bucketName, namespace, tableName, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/r2-catalog/${bucketName}/namespaces/${namespace}/tables/${tableName}/maintenance-configs`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.MaintenanceConfigs = MaintenanceConfigs;
+//# sourceMappingURL=maintenance-configs.js.map
+
+/***/ }),
+
+/***/ 49416:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Tables = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const MaintenanceConfigsAPI = __importStar(__nccwpck_require__(50056));
+const maintenance_configs_1 = __nccwpck_require__(50056);
+class Tables extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.maintenanceConfigs = new MaintenanceConfigsAPI.MaintenanceConfigs(this._client);
+    }
+    /**
+     * Returns a list of tables in the specified namespace within an R2 catalog.
+     * Supports pagination for efficient traversal of large table collections.
+     *
+     * @example
+     * ```ts
+     * const tables =
+     *   await client.r2DataCatalog.namespaces.tables.list(
+     *     'my-data-bucket',
+     *     'bronze',
+     *     { account_id: '0123456789abcdef0123456789abcdef' },
+     *   );
+     * ```
+     */
+    list(bucketName, namespace, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/r2-catalog/${bucketName}/namespaces/${namespace}/tables`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Tables = Tables;
+Tables.MaintenanceConfigs = maintenance_configs_1.MaintenanceConfigs;
+//# sourceMappingURL=tables.js.map
+
+/***/ }),
+
+/***/ 73319:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.R2DataCatalog = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const CredentialsAPI = __importStar(__nccwpck_require__(6880));
+const credentials_1 = __nccwpck_require__(6880);
+const MaintenanceConfigsAPI = __importStar(__nccwpck_require__(91411));
+const maintenance_configs_1 = __nccwpck_require__(91411);
+const NamespacesAPI = __importStar(__nccwpck_require__(64411));
+const namespaces_1 = __nccwpck_require__(64411);
+class R2DataCatalog extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.maintenanceConfigs = new MaintenanceConfigsAPI.MaintenanceConfigs(this._client);
+        this.credentials = new CredentialsAPI.Credentials(this._client);
+        this.namespaces = new NamespacesAPI.Namespaces(this._client);
+    }
+    /**
+     * Returns a list of R2 buckets that have been enabled as Apache Iceberg catalogs
+     * for the specified account. Each catalog represents an R2 bucket configured to
+     * store Iceberg metadata and data files.
+     *
+     * @example
+     * ```ts
+     * const r2DataCatalogs = await client.r2DataCatalog.list({
+     *   account_id: '0123456789abcdef0123456789abcdef',
+     * });
+     * ```
+     */
+    list(params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/r2-catalog`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Disable an R2 bucket as a catalog. This operation deactivates the catalog but
+     * preserves existing metadata and data files. The catalog can be re-enabled later.
+     *
+     * @example
+     * ```ts
+     * await client.r2DataCatalog.disable('my-data-bucket', {
+     *   account_id: '0123456789abcdef0123456789abcdef',
+     * });
+     * ```
+     */
+    disable(bucketName, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/r2-catalog/${bucketName}/disable`, {
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    /**
+     * Enable an R2 bucket as an Apache Iceberg catalog. This operation creates the
+     * necessary catalog infrastructure and activates the bucket for storing Iceberg
+     * metadata and data files.
+     *
+     * @example
+     * ```ts
+     * const response = await client.r2DataCatalog.enable(
+     *   'my-data-bucket',
+     *   { account_id: '0123456789abcdef0123456789abcdef' },
+     * );
+     * ```
+     */
+    enable(bucketName, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/r2-catalog/${bucketName}/enable`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieve detailed information about a specific R2 catalog by bucket name.
+     * Returns catalog status, maintenance configuration, and credential status.
+     *
+     * @example
+     * ```ts
+     * const r2DataCatalog = await client.r2DataCatalog.get(
+     *   'my-data-bucket',
+     *   { account_id: '0123456789abcdef0123456789abcdef' },
+     * );
+     * ```
+     */
+    get(bucketName, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/r2-catalog/${bucketName}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.R2DataCatalog = R2DataCatalog;
+R2DataCatalog.MaintenanceConfigs = maintenance_configs_1.MaintenanceConfigs;
+R2DataCatalog.Credentials = credentials_1.Credentials;
+R2DataCatalog.Namespaces = namespaces_1.Namespaces;
+//# sourceMappingURL=r2-data-catalog.js.map
 
 /***/ }),
 
@@ -62060,7 +68137,10 @@ class EventNotifications extends resource_1.APIResource {
      *   await client.r2.buckets.eventNotifications.update(
      *     'example-bucket',
      *     'queue_id',
-     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       rules: [{ actions: ['PutObject', 'CopyObject'] }],
+     *     },
      *   );
      * ```
      */
@@ -62473,6 +68553,12 @@ class ConnectivityPrecheck extends resource_1.APIResource {
      * const response =
      *   await client.r2.superSlurper.connectivityPrecheck.source({
      *     account_id: 'account_id',
+     *     bucket: 'bucket',
+     *     secret: {
+     *       accessKeyId: 'accessKeyId',
+     *       secretAccessKey: 'secretAccessKey',
+     *     },
+     *     vendor: 's3',
      *   });
      * ```
      */
@@ -62491,6 +68577,12 @@ class ConnectivityPrecheck extends resource_1.APIResource {
      * const response =
      *   await client.r2.superSlurper.connectivityPrecheck.target({
      *     account_id: 'account_id',
+     *     bucket: 'bucket',
+     *     secret: {
+     *       accessKeyId: 'accessKeyId',
+     *       secretAccessKey: 'secretAccessKey',
+     *     },
+     *     vendor: 'r2',
      *   });
      * ```
      */
@@ -62548,7 +68640,8 @@ class Jobs extends resource_1.APIResource {
         this.logs = new LogsAPI.Logs(this._client);
     }
     /**
-     * Create a job
+     * Creates a new R2 Super Slurper migration job to transfer objects from a source
+     * bucket (e.g. S3, GCS, R2) to R2.
      *
      * @example
      * ```ts
@@ -62562,7 +68655,7 @@ class Jobs extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/slurper/jobs`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List jobs
+     * Lists all R2 Super Slurper migration jobs for the account with their status.
      *
      * @example
      * ```ts
@@ -62582,7 +68675,8 @@ class Jobs extends resource_1.APIResource {
         });
     }
     /**
-     * Abort a job
+     * Cancels a specific R2 Super Slurper migration job. Any objects in the middle of
+     * a transfer will finish, but no new objects will start transferring.
      *
      * @example
      * ```ts
@@ -62597,7 +68691,9 @@ class Jobs extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/slurper/jobs/${jobId}/abort`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Abort all jobs
+     * Cancels all running R2 Super Slurper migration jobs for the account. Any objects
+     * in the middle of a transfer will finish, but no new objects will start
+     * transferring.
      *
      * @example
      * ```ts
@@ -62611,7 +68707,8 @@ class Jobs extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/slurper/jobs/abortAll`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get job details
+     * Retrieves detailed status and configuration for a specific R2 Super Slurper
+     * migration job.
      *
      * @example
      * ```ts
@@ -62626,7 +68723,8 @@ class Jobs extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/slurper/jobs/${jobId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Pause a job
+     * Pauses a running R2 Super Slurper migration job. The job can be resumed later to
+     * continue transferring.
      *
      * @example
      * ```ts
@@ -62641,7 +68739,7 @@ class Jobs extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/slurper/jobs/${jobId}/pause`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get job progress
+     * Retrieves current progress metrics for an R2 Super Slurper migration job
      *
      * @example
      * ```ts
@@ -62656,7 +68754,8 @@ class Jobs extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/slurper/jobs/${jobId}/progress`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Resume a job
+     * Resumes a paused R2 Super Slurper migration job, continuing the transfer from
+     * where it stopped.
      *
      * @example
      * ```ts
@@ -62694,7 +68793,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Logs extends resource_1.APIResource {
     /**
-     * Get job logs
+     * Gets log entries for an R2 Super Slurper migration job, showing migration status
+     * changes, errors, etc.
      *
      * @example
      * ```ts
@@ -62811,6 +68911,32 @@ exports.TemporaryCredentials = TemporaryCredentials;
 
 /***/ }),
 
+/***/ 15283:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AgentReadiness = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+class AgentReadiness extends resource_1.APIResource {
+    summary(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summary(dimension, {}, query);
+        }
+        return this._client.get(`/radar/agent_readiness/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.AgentReadiness = AgentReadiness;
+//# sourceMappingURL=agent-readiness.js.map
+
+/***/ }),
+
 /***/ 20838:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -62843,6 +68969,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AI = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const MarkdownForAgentsAPI = __importStar(__nccwpck_require__(44954));
+const markdown_for_agents_1 = __nccwpck_require__(44954);
 const TimeseriesGroupsAPI = __importStar(__nccwpck_require__(91541));
 const timeseries_groups_1 = __nccwpck_require__(91541);
 const ToMarkdownAPI = __importStar(__nccwpck_require__(69287));
@@ -62858,14 +68986,15 @@ class AI extends resource_1.APIResource {
         this.inference = new InferenceAPI.Inference(this._client);
         this.bots = new BotsAPI.Bots(this._client);
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
+        this.markdownForAgents = new MarkdownForAgentsAPI.MarkdownForAgents(this._client);
     }
 }
 exports.AI = AI;
 AI.ToMarkdown = to_markdown_1.ToMarkdown;
-AI.ToMarkdownCreateResponsesSinglePage = to_markdown_1.ToMarkdownCreateResponsesSinglePage;
 AI.Inference = inference_1.Inference;
 AI.Bots = bots_1.Bots;
 AI.TimeseriesGroups = timeseries_groups_1.TimeseriesGroups;
+AI.MarkdownForAgents = markdown_for_agents_1.MarkdownForAgents;
 //# sourceMappingURL=ai.js.map
 
 /***/ }),
@@ -62902,12 +69031,34 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Bots = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
 const SummaryAPI = __importStar(__nccwpck_require__(50641));
 const summary_1 = __nccwpck_require__(50641);
 class Bots extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.summary = new SummaryAPI.Summary(this._client);
+    }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/ai/bots/summary/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseries(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseries({}, query);
+        }
+        return this._client.get('/radar/ai/bots/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroups(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroups(dimension, {}, query);
+        }
+        return this._client.get(`/radar/ai/bots/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Bots = Bots;
@@ -62971,6 +69122,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Inference = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
 const SummaryAPI = __importStar(__nccwpck_require__(82898));
 const summary_1 = __nccwpck_require__(82898);
 const TimeseriesGroupsAPI = __importStar(__nccwpck_require__(68501));
@@ -62980,6 +69132,21 @@ class Inference extends resource_1.APIResource {
         super(...arguments);
         this.summary = new SummaryAPI.Summary(this._client);
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
+    }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/ai/inference/summary/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/ai/inference/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Inference = Inference;
@@ -63099,6 +69266,35 @@ TimeseriesGroups.Summary = summary_1.Summary;
 
 /***/ }),
 
+/***/ 44954:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MarkdownForAgents = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+class MarkdownForAgents extends resource_1.APIResource {
+    summary(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summary({}, query);
+        }
+        return this._client.get('/radar/ai/markdown_for_agents/summary', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseries(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseries({}, query);
+        }
+        return this._client.get('/radar/ai/markdown_for_agents/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.MarkdownForAgents = MarkdownForAgents;
+//# sourceMappingURL=markdown-for-agents.js.map
+
+/***/ }),
+
 /***/ 91541:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -63147,46 +69343,50 @@ exports.TimeseriesGroups = TimeseriesGroups;
 /***/ }),
 
 /***/ 69287:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ToMarkdownCreateResponsesSinglePage = exports.ToMarkdown = void 0;
+exports.ToMarkdown = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const pagination_1 = __nccwpck_require__(30404);
+const Core = __importStar(__nccwpck_require__(75487));
 class ToMarkdown extends resource_1.APIResource {
     /**
-     * Convert Files into Markdown
+     * Converts uploaded files into Markdown format using Workers AI.
      *
-     * @example
-     * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const toMarkdownCreateResponse of client.radar.ai.toMarkdown.create(
-     *   fs.createReadStream('path/to/file'),
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * )) {
-     *   // ...
-     * }
-     * ```
+     * @deprecated Use [AI > To Markdown](https://developers.cloudflare.com/api/resources/ai/subresources/to_markdown/) instead.
      */
-    create(body, params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/ai/tomarkdown`, ToMarkdownCreateResponsesSinglePage, {
-            body: body,
-            method: 'post',
-            ...options,
-            headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
-            __binaryRequest: true,
-        });
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/ai/tomarkdown`, Core.multipartFormRequestOptions({ body, ...options }))._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ToMarkdown = ToMarkdown;
-class ToMarkdownCreateResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.ToMarkdownCreateResponsesSinglePage = ToMarkdownCreateResponsesSinglePage;
-ToMarkdown.ToMarkdownCreateResponsesSinglePage = ToMarkdownCreateResponsesSinglePage;
 //# sourceMappingURL=to-markdown.js.map
 
 /***/ }),
@@ -63319,11 +69519,26 @@ class AS112 extends resource_1.APIResource {
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
         this.top = new TopAPI.Top(this._client);
     }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/as112/summary/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.timeseries({}, query);
         }
         return this._client.get('/radar/as112/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/as112/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.AS112 = AS112;
@@ -63592,11 +69807,29 @@ class Layer3 extends resource_1.APIResource {
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
         this.top = new TopAPI.Top(this._client);
     }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/attacks/layer3/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.timeseries({}, query);
         }
         return this._client.get('/radar/attacks/layer3/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/attacks/layer3/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Layer3 = Layer3;
@@ -63892,11 +70125,29 @@ class Layer7 extends resource_1.APIResource {
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
         this.top = new TopAPI.Top(this._client);
     }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/attacks/layer7/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.timeseries({}, query);
         }
         return this._client.get('/radar/attacks/layer7/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/attacks/layer7/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Layer7 = Layer7;
@@ -64226,6 +70477,8 @@ const HijacksAPI = __importStar(__nccwpck_require__(93194));
 const hijacks_1 = __nccwpck_require__(93194);
 const LeaksAPI = __importStar(__nccwpck_require__(45750));
 const leaks_1 = __nccwpck_require__(45750);
+const RPKIAPI = __importStar(__nccwpck_require__(73332));
+const rpki_1 = __nccwpck_require__(73332);
 const TopAPI = __importStar(__nccwpck_require__(35258));
 const top_1 = __nccwpck_require__(35258);
 class BGP extends resource_1.APIResource {
@@ -64236,6 +70489,7 @@ class BGP extends resource_1.APIResource {
         this.hijacks = new HijacksAPI.Hijacks(this._client);
         this.routes = new RoutesAPI.Routes(this._client);
         this.ips = new IPsAPI.IPs(this._client);
+        this.rpki = new RPKIAPI.RPKI(this._client);
     }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
@@ -64250,6 +70504,7 @@ BGP.Top = top_1.Top;
 BGP.Hijacks = hijacks_1.Hijacks;
 BGP.Routes = routes_1.Routes;
 BGP.IPs = ips_1.IPs;
+BGP.RPKI = rpki_1.RPKI;
 //# sourceMappingURL=bgp.js.map
 
 /***/ }),
@@ -64477,6 +70732,87 @@ class Routes extends resource_1.APIResource {
 }
 exports.Routes = Routes;
 //# sourceMappingURL=routes.js.map
+
+/***/ }),
+
+/***/ 669:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ASPA = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+class ASPA extends resource_1.APIResource {
+    changes(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.changes({}, query);
+        }
+        return this._client.get('/radar/bgp/rpki/aspa/changes', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    snapshot(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.snapshot({}, query);
+        }
+        return this._client.get('/radar/bgp/rpki/aspa/snapshot', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseries(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseries({}, query);
+        }
+        return this._client.get('/radar/bgp/rpki/aspa/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.ASPA = ASPA;
+//# sourceMappingURL=aspa.js.map
+
+/***/ }),
+
+/***/ 73332:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RPKI = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ASPAAPI = __importStar(__nccwpck_require__(669));
+const aspa_1 = __nccwpck_require__(669);
+class RPKI extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.aspa = new ASPAAPI.ASPA(this._client);
+    }
+}
+exports.RPKI = RPKI;
+RPKI.ASPA = aspa_1.ASPA;
+//# sourceMappingURL=rpki.js.map
 
 /***/ }),
 
@@ -64736,14 +71072,14 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Ct = void 0;
+exports.CT = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
 const AuthoritiesAPI = __importStar(__nccwpck_require__(53018));
 const authorities_1 = __nccwpck_require__(53018);
 const LogsAPI = __importStar(__nccwpck_require__(85720));
 const logs_1 = __nccwpck_require__(85720);
-class Ct extends resource_1.APIResource {
+class CT extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.authorities = new AuthoritiesAPI.Authorities(this._client);
@@ -64768,9 +71104,9 @@ class Ct extends resource_1.APIResource {
         return this._client.get(`/radar/ct/timeseries_groups/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
     }
 }
-exports.Ct = Ct;
-Ct.Authorities = authorities_1.Authorities;
-Ct.Logs = logs_1.Logs;
+exports.CT = CT;
+CT.Authorities = authorities_1.Authorities;
+CT.Logs = logs_1.Logs;
 //# sourceMappingURL=ct.js.map
 
 /***/ }),
@@ -64909,11 +71245,26 @@ class DNS extends resource_1.APIResource {
         this.summary = new SummaryAPI.Summary(this._client);
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
     }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/dns/summary/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.timeseries({}, query);
         }
         return this._client.get('/radar/dns/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/dns/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.DNS = DNS;
@@ -65201,6 +71552,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Routing = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
 const SummaryAPI = __importStar(__nccwpck_require__(42705));
 const summary_1 = __nccwpck_require__(42705);
 const TimeseriesGroupsAPI = __importStar(__nccwpck_require__(41318));
@@ -65210,6 +71562,24 @@ class Routing extends resource_1.APIResource {
         super(...arguments);
         this.summary = new SummaryAPI.Summary(this._client);
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
+    }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/email/routing/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/email/routing/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Routing = Routing;
@@ -65375,6 +71745,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Security = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
 const SummaryAPI = __importStar(__nccwpck_require__(68555));
 const summary_1 = __nccwpck_require__(68555);
 const TimeseriesGroupsAPI = __importStar(__nccwpck_require__(55356));
@@ -65387,6 +71758,24 @@ class Security extends resource_1.APIResource {
         this.top = new TopAPI.Top(this._client);
         this.summary = new SummaryAPI.Summary(this._client);
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
+    }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/email/security/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/email/security/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Security = Security;
@@ -65680,7 +72069,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Tlds = void 0;
+exports.TLDs = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
 const MaliciousAPI = __importStar(__nccwpck_require__(38419));
@@ -65689,7 +72078,7 @@ const SpamAPI = __importStar(__nccwpck_require__(56680));
 const spam_1 = __nccwpck_require__(56680);
 const SpoofAPI = __importStar(__nccwpck_require__(56836));
 const spoof_1 = __nccwpck_require__(56836);
-class Tlds extends resource_1.APIResource {
+class TLDs extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.malicious = new MaliciousAPI.Malicious(this._client);
@@ -65703,10 +72092,10 @@ class Tlds extends resource_1.APIResource {
         return this._client.get('/radar/email/security/top/tlds', { query, ...options })._thenUnwrap((obj) => obj.result);
     }
 }
-exports.Tlds = Tlds;
-Tlds.Malicious = malicious_1.Malicious;
-Tlds.Spam = spam_1.Spam;
-Tlds.Spoof = spoof_1.Spoof;
+exports.TLDs = TLDs;
+TLDs.Malicious = malicious_1.Malicious;
+TLDs.Spam = spam_1.Spam;
+TLDs.Spoof = spoof_1.Spoof;
 //# sourceMappingURL=tlds.js.map
 
 /***/ }),
@@ -65743,16 +72132,16 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Top = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const TldsAPI = __importStar(__nccwpck_require__(89324));
+const TLDsAPI = __importStar(__nccwpck_require__(89324));
 const tlds_1 = __nccwpck_require__(89324);
 class Top extends resource_1.APIResource {
     constructor() {
         super(...arguments);
-        this.tlds = new TldsAPI.Tlds(this._client);
+        this.tlds = new TLDsAPI.TLDs(this._client);
     }
 }
 exports.Top = Top;
-Top.Tlds = tlds_1.Tlds;
+Top.TLDs = tlds_1.TLDs;
 //# sourceMappingURL=top.js.map
 
 /***/ }),
@@ -65779,6 +72168,12 @@ class ASNs extends resource_1.APIResource {
             return this.asSet(asn, {}, query);
         }
         return this._client.get(`/radar/entities/asns/${asn}/as_set`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    botnetThreatFeed(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.botnetThreatFeed({}, query);
+        }
+        return this._client.get('/radar/entities/asns/botnet_threat_feed', { query, ...options })._thenUnwrap((obj) => obj.result);
     }
     get(asn, query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
@@ -65901,6 +72296,35 @@ class Locations extends resource_1.APIResource {
 }
 exports.Locations = Locations;
 //# sourceMappingURL=locations.js.map
+
+/***/ }),
+
+/***/ 70780:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Geolocations = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+class Geolocations extends resource_1.APIResource {
+    list(query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.list({}, query);
+        }
+        return this._client.get('/radar/geolocations', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    get(geoId, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.get(geoId, {}, query);
+        }
+        return this._client.get(`/radar/geolocations/${geoId}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Geolocations = Geolocations;
+//# sourceMappingURL=geolocations.js.map
 
 /***/ }),
 
@@ -66242,11 +72666,26 @@ class HTTP extends resource_1.APIResource {
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
         this.top = new TopAPI.Top(this._client);
     }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/http/summary/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.timeseries({}, query);
         }
         return this._client.get('/radar/http/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/http/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.HTTP = HTTP;
@@ -66766,6 +73205,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LeakedCredentials = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
 const SummaryAPI = __importStar(__nccwpck_require__(94685));
 const summary_1 = __nccwpck_require__(94685);
 const TimeseriesGroupsAPI = __importStar(__nccwpck_require__(91666));
@@ -66775,6 +73215,24 @@ class LeakedCredentials extends resource_1.APIResource {
         super(...arguments);
         this.summary = new SummaryAPI.Summary(this._client);
         this.timeseriesGroups = new TimeseriesGroupsAPI.TimeseriesGroups(this._client);
+    }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/leaked_credential_checks/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroupsV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroupsV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/leaked_credential_checks/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.LeakedCredentials = LeakedCredentials;
@@ -66884,12 +73342,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Netflows = void 0;
+exports.NetFlows = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
 const TopAPI = __importStar(__nccwpck_require__(16511));
 const top_1 = __nccwpck_require__(16511);
-class Netflows extends resource_1.APIResource {
+class NetFlows extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.top = new TopAPI.Top(this._client);
@@ -66900,15 +73358,30 @@ class Netflows extends resource_1.APIResource {
         }
         return this._client.get('/radar/netflows/summary', { query, ...options })._thenUnwrap((obj) => obj.result);
     }
+    summaryV2(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summaryV2(dimension, {}, query);
+        }
+        return this._client.get(`/radar/netflows/summary/${dimension}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
     timeseries(query = {}, options) {
         if ((0, core_1.isRequestOptions)(query)) {
             return this.timeseries({}, query);
         }
         return this._client.get('/radar/netflows/timeseries', { query, ...options })._thenUnwrap((obj) => obj.result);
     }
+    timeseriesGroups(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroups(dimension, {}, query);
+        }
+        return this._client.get(`/radar/netflows/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
 }
-exports.Netflows = Netflows;
-Netflows.Top = top_1.Top;
+exports.NetFlows = NetFlows;
+NetFlows.Top = top_1.Top;
 //# sourceMappingURL=netflows.js.map
 
 /***/ }),
@@ -66939,6 +73412,122 @@ class Top extends resource_1.APIResource {
 }
 exports.Top = Top;
 //# sourceMappingURL=top.js.map
+
+/***/ }),
+
+/***/ 83458:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Origin = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+class Origin extends resource_1.APIResource {
+    summary(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.summary(dimension, {}, query);
+        }
+        return this._client.get(`/radar/post_quantum/origin/summary/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    timeseriesGroups(dimension, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.timeseriesGroups(dimension, {}, query);
+        }
+        return this._client.get(`/radar/post_quantum/origin/timeseries_groups/${dimension}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Origin = Origin;
+//# sourceMappingURL=origin.js.map
+
+/***/ }),
+
+/***/ 7306:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PostQuantum = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const OriginAPI = __importStar(__nccwpck_require__(83458));
+const origin_1 = __nccwpck_require__(83458);
+const TLSAPI = __importStar(__nccwpck_require__(73787));
+const tls_1 = __nccwpck_require__(73787);
+class PostQuantum extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.origin = new OriginAPI.Origin(this._client);
+        this.tls = new TLSAPI.TLS(this._client);
+    }
+}
+exports.PostQuantum = PostQuantum;
+PostQuantum.Origin = origin_1.Origin;
+PostQuantum.TLS = tls_1.TLS;
+//# sourceMappingURL=post-quantum.js.map
+
+/***/ }),
+
+/***/ 73787:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TLS = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class TLS extends resource_1.APIResource {
+    /**
+     * Tests whether a hostname or IP address supports Post-Quantum (PQ) TLS key
+     * exchange. Returns information about the negotiated key exchange algorithm and
+     * whether it uses PQ cryptography.
+     *
+     * @example
+     * ```ts
+     * const response = await client.radar.postQuantum.tls.support(
+     *   { host: 'cloudflare.com' },
+     * );
+     * ```
+     */
+    support(query, options) {
+        return this._client.get('/radar/post_quantum/tls/support', { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.TLS = TLS;
+//# sourceMappingURL=tls.js.map
 
 /***/ }),
 
@@ -67157,8 +73746,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Radar = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const AgentReadinessAPI = __importStar(__nccwpck_require__(15283));
+const agent_readiness_1 = __nccwpck_require__(15283);
 const DatasetsAPI = __importStar(__nccwpck_require__(78706));
 const datasets_1 = __nccwpck_require__(78706);
+const GeolocationsAPI = __importStar(__nccwpck_require__(70780));
+const geolocations_1 = __nccwpck_require__(70780);
 const SearchAPI = __importStar(__nccwpck_require__(29827));
 const search_1 = __nccwpck_require__(29827);
 const TCPResetsTimeoutsAPI = __importStar(__nccwpck_require__(80558));
@@ -67175,7 +73768,7 @@ const BGPAPI = __importStar(__nccwpck_require__(49604));
 const bgp_1 = __nccwpck_require__(49604);
 const BotsAPI = __importStar(__nccwpck_require__(27630));
 const bots_1 = __nccwpck_require__(27630);
-const CtAPI = __importStar(__nccwpck_require__(54772));
+const CTAPI = __importStar(__nccwpck_require__(54772));
 const ct_1 = __nccwpck_require__(54772);
 const DNSAPI = __importStar(__nccwpck_require__(97604));
 const dns_1 = __nccwpck_require__(97604);
@@ -67187,8 +73780,10 @@ const HTTPAPI = __importStar(__nccwpck_require__(70470));
 const http_1 = __nccwpck_require__(70470);
 const LeakedCredentialsAPI = __importStar(__nccwpck_require__(58588));
 const leaked_credentials_1 = __nccwpck_require__(58588);
-const NetflowsAPI = __importStar(__nccwpck_require__(92670));
+const NetFlowsAPI = __importStar(__nccwpck_require__(92670));
 const netflows_1 = __nccwpck_require__(92670);
+const PostQuantumAPI = __importStar(__nccwpck_require__(7306));
+const post_quantum_1 = __nccwpck_require__(7306);
 const QualityAPI = __importStar(__nccwpck_require__(22188));
 const quality_1 = __nccwpck_require__(22188);
 const RankingAPI = __importStar(__nccwpck_require__(90088));
@@ -67202,20 +73797,23 @@ const verified_bots_1 = __nccwpck_require__(19524);
 class Radar extends resource_1.APIResource {
     constructor() {
         super(...arguments);
+        this.agentReadiness = new AgentReadinessAPI.AgentReadiness(this._client);
         this.ai = new AIAPI.AI(this._client);
-        this.ct = new CtAPI.Ct(this._client);
+        this.ct = new CTAPI.CT(this._client);
         this.annotations = new AnnotationsAPI.Annotations(this._client);
         this.bgp = new BGPAPI.BGP(this._client);
         this.bots = new BotsAPI.Bots(this._client);
         this.datasets = new DatasetsAPI.Datasets(this._client);
         this.dns = new DNSAPI.DNS(this._client);
-        this.netflows = new NetflowsAPI.Netflows(this._client);
+        this.netFlows = new NetFlowsAPI.NetFlows(this._client);
+        this.postQuantum = new PostQuantumAPI.PostQuantum(this._client);
         this.search = new SearchAPI.Search(this._client);
         this.verifiedBots = new VerifiedBotsAPI.VerifiedBots(this._client);
         this.as112 = new AS112API.AS112(this._client);
         this.email = new EmailAPI.Email(this._client);
         this.attacks = new AttacksAPI.Attacks(this._client);
         this.entities = new EntitiesAPI.Entities(this._client);
+        this.geolocations = new GeolocationsAPI.Geolocations(this._client);
         this.http = new HTTPAPI.HTTP(this._client);
         this.quality = new QualityAPI.Quality(this._client);
         this.ranking = new RankingAPI.Ranking(this._client);
@@ -67226,20 +73824,23 @@ class Radar extends resource_1.APIResource {
     }
 }
 exports.Radar = Radar;
+Radar.AgentReadiness = agent_readiness_1.AgentReadiness;
 Radar.AI = ai_1.AI;
-Radar.Ct = ct_1.Ct;
+Radar.CT = ct_1.CT;
 Radar.Annotations = annotations_1.Annotations;
 Radar.BGP = bgp_1.BGP;
 Radar.Bots = bots_1.Bots;
 Radar.Datasets = datasets_1.Datasets;
 Radar.DNS = dns_1.DNS;
-Radar.Netflows = netflows_1.Netflows;
+Radar.NetFlows = netflows_1.NetFlows;
+Radar.PostQuantum = post_quantum_1.PostQuantum;
 Radar.Search = search_1.Search;
 Radar.VerifiedBots = verified_bots_1.VerifiedBots;
 Radar.AS112 = as112_1.AS112;
 Radar.Email = email_1.Email;
 Radar.Attacks = attacks_1.Attacks;
 Radar.Entities = entities_1.Entities;
+Radar.Geolocations = geolocations_1.Geolocations;
 Radar.HTTP = http_1.HTTP;
 Radar.Quality = quality_1.Quality;
 Radar.Ranking = ranking_1.Ranking;
@@ -67515,7 +74116,10 @@ const resource_1 = __nccwpck_require__(59108);
 class Search extends resource_1.APIResource {
     /**
      * Searches for locations, autonomous systems, reports, bots, certificate logs,
-     * certificate authorities, industries and verticals
+     * certificate authorities, industries and verticals. Location names can be
+     * localized by sending an `Accept-Language` HTTP header with a BCP 47 language tag
+     * (e.g., `Accept-Language: pt-PT`). The full quality-value chain is supported
+     * (e.g., `pt-PT,pt;q=0.9,en;q=0.8`).
      *
      * @example
      * ```ts
@@ -67716,7 +74320,21 @@ VerifiedBots.Top = top_1.Top;
 
 /***/ }),
 
-/***/ 89553:
+/***/ 11210:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RateLimits = void 0;
+var rate_limits_1 = __nccwpck_require__(57307);
+Object.defineProperty(exports, "RateLimits", ({ enumerable: true, get: function () { return rate_limits_1.RateLimits; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 57307:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -67792,6 +74410,1303 @@ RateLimits.RateLimitsV4PagePaginationArray = RateLimitsV4PagePaginationArray;
 
 /***/ }),
 
+/***/ 46246:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ActiveSession = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class ActiveSession extends resource_1.APIResource {
+    /**
+     * Creates a new poll in an active session for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.activeSession.createPoll(
+     *     'app_id',
+     *     'meeting_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       options: ['string'],
+     *       question: 'question',
+     *     },
+     *   );
+     * ```
+     */
+    createPoll(appId, meetingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/active-session/poll`, { body, ...options });
+    }
+    /**
+     * Returns details of an ongoing active session for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.activeSession.getActiveSession(
+     *     'app_id',
+     *     'meeting_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getActiveSession(appId, meetingId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/active-session`, options);
+    }
+    /**
+     * Kicks all participants from an active session for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.activeSession.kickAllParticipants(
+     *     'app_id',
+     *     'meeting_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    kickAllParticipants(appId, meetingId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/active-session/kick-all`, options);
+    }
+    /**
+     * Kicks one or more participants from an active session using user ID or custom
+     * participant ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.activeSession.kickParticipants(
+     *     'app_id',
+     *     'meeting_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       custom_participant_ids: ['string'],
+     *       participant_ids: ['string'],
+     *     },
+     *   );
+     * ```
+     */
+    kickParticipants(appId, meetingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/active-session/kick`, { body, ...options });
+    }
+}
+exports.ActiveSession = ActiveSession;
+//# sourceMappingURL=active-session.js.map
+
+/***/ }),
+
+/***/ 4565:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Analytics = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Analytics extends resource_1.APIResource {
+    /**
+     * Returns day-wise session and recording analytics data of an App for the
+     * specified time range start_date to end_date. If start_date and end_date are not
+     * provided, the default time range is set from 30 days ago to the current date.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.analytics.getOrgAnalytics(
+     *     'app_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getOrgAnalytics(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/analytics/daywise`, {
+            query,
+            ...options,
+        });
+    }
+}
+exports.Analytics = Analytics;
+//# sourceMappingURL=analytics.js.map
+
+/***/ }),
+
+/***/ 16729:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Apps = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Apps extends resource_1.APIResource {
+    /**
+     * Fetch all apps for your account
+     *
+     * @example
+     * ```ts
+     * const app = await client.realtimeKit.apps.get({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    get(params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/apps`, options);
+    }
+    /**
+     * Create new app for your account
+     *
+     * @example
+     * ```ts
+     * const response = await client.realtimeKit.apps.post({
+     *   account_id: 'account_id',
+     *   name: 'name',
+     * });
+     * ```
+     */
+    post(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/apps`, { body, ...options });
+    }
+}
+exports.Apps = Apps;
+//# sourceMappingURL=apps.js.map
+
+/***/ }),
+
+/***/ 14378:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Livestreams = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Livestreams extends resource_1.APIResource {
+    /**
+     * Creates a livestream for the given App ID and returns ingest server, stream key,
+     * and playback URL. You can pass custom input to the ingest server and stream key,
+     * and freely distribute the content using the playback URL on any player that
+     * supports HLS/LHLS.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.createIndependentLivestream(
+     *     'app_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       name: 'prdmmp-xhycsl',
+     *     },
+     *   );
+     * ```
+     */
+    createIndependentLivestream(appId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/livestreams`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Returns details of all active livestreams for the given livestream ID. Retreive
+     * the livestream ID using the `Start livestreaming a meeting` API.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getActiveLivestreamsForLivestreamId(
+     *     'app_id',
+     *     'livestream_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getActiveLivestreamsForLivestreamId(appId, livestreamId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/livestreams/${livestreamId}/active-livestream-session`, options);
+    }
+    /**
+     * Returns details of livestreams associated with the given App ID. It includes
+     * livestreams created by your App and RealtimeKit meetings that are livestreamed
+     * by your App. If you only want details of livestreams created by your App and not
+     * RealtimeKit meetings, you can use the `exclude_meetings` query parameter.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getAllLivestreams(
+     *     'app_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getAllLivestreams(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/livestreams`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Returns livestream analytics for the specified time range.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getLivestreamAnalyticsComplete(
+     *     'app_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getLivestreamAnalyticsComplete(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/analytics/livestreams/overall`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Returns livestream session details for the given livestream session ID. Retrieve
+     * the `livestream_session_id`using the
+     * `Fetch livestream session details using a session ID` API.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getLivestreamSessionDetailsForSessionId(
+     *     'app_id',
+     *     'livestream-session-id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getLivestreamSessionDetailsForSessionId(appId, livestreamSessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/livestreams/sessions/${livestreamSessionId}`, options);
+    }
+    /**
+     * Returns details of a livestream with sessions for the given livestream ID.
+     * Retreive the livestream ID using the `Start livestreaming a meeting` API.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getLivestreamSessionForLivestreamId(
+     *     'app_id',
+     *     'livestream_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getLivestreamSessionForLivestreamId(appId, livestreamId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/livestreams/${livestreamId}`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Returns details of all active livestreams for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getMeetingActiveLivestreams(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getMeetingActiveLivestreams(appId, meetingId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/active-livestream`, options);
+    }
+    /**
+     * Returns day-wise session and recording analytics data of an App for the
+     * specified time range start_date to end_date. If start_date and end_date are not
+     * provided, the default time range is set from 30 days ago to the current date.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.getOrgAnalytics(
+     *     'app_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getOrgAnalytics(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/analytics/daywise`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Starts livestream of a meeting associated with the given meeting ID. Retreive
+     * the meeting ID using the `Create a meeting` API.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.startLivestreamingAMeeting(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       name: 'prdmmp-xhycsl',
+     *     },
+     *   );
+     * ```
+     */
+    startLivestreamingAMeeting(appId, meetingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/livestreams`, { body, ...options });
+    }
+    /**
+     * Stops the active livestream of a meeting associated with the given meeting ID.
+     * Retreive the meeting ID using the `Create a meeting` API.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.livestreams.stopLivestreamingAMeeting(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    stopLivestreamingAMeeting(appId, meetingId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/active-livestream/stop`, options);
+    }
+}
+exports.Livestreams = Livestreams;
+//# sourceMappingURL=livestreams.js.map
+
+/***/ }),
+
+/***/ 79387:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Meetings = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Meetings extends resource_1.APIResource {
+    /**
+     * Create a meeting for the given App ID.
+     *
+     * @example
+     * ```ts
+     * const meeting = await client.realtimeKit.meetings.create(
+     *   'app_id',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    create(appId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings`, { body, ...options });
+    }
+    /**
+     * Adds a participant to the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.addParticipant(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       custom_participant_id: 'custom_participant_id',
+     *       preset_name: 'preset_name',
+     *     },
+     *   );
+     * ```
+     */
+    addParticipant(appId, meetingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/participants`, { body, ...options });
+    }
+    /**
+     * Deletes a participant for the given meeting and participant ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.deleteMeetingParticipant(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'participant_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    deleteMeetingParticipant(appId, meetingId, participantId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/participants/${participantId}`, options);
+    }
+    /**
+     * Updates a participant's details for the given meeting and participant ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.editParticipant(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'participant_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    editParticipant(appId, meetingId, participantId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/participants/${participantId}`, { body, ...options });
+    }
+    /**
+     * Returns all meetings for the given App ID.
+     *
+     * @example
+     * ```ts
+     * const meeting = await client.realtimeKit.meetings.get(
+     *   'app_id',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/meetings`, { query, ...options });
+    }
+    /**
+     * Returns a meeting details in an App for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.getMeetingById(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getMeetingById(appId, meetingId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Returns a participant details for the given meeting and participant ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.getMeetingParticipant(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'participant_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getMeetingParticipant(appId, meetingId, participantId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/participants/${participantId}`, options);
+    }
+    /**
+     * Returns all participants detail for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.getMeetingParticipants(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getMeetingParticipants(appId, meetingId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/participants`, { query, ...options });
+    }
+    /**
+     * Regenerates participant's authentication token for the given meeting and
+     * participant ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.refreshParticipantToken(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     'participant_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    refreshParticipantToken(appId, meetingId, participantId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}/participants/${participantId}/token`, options);
+    }
+    /**
+     * Replaces all the details for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.replaceMeetingById(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    replaceMeetingById(appId, meetingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Updates a meeting in an App for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.meetings.updateMeetingById(
+     *     'app_id',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    updateMeetingById(appId, meetingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/realtime/kit/${appId}/meetings/${meetingId}`, {
+            body,
+            ...options,
+        });
+    }
+}
+exports.Meetings = Meetings;
+//# sourceMappingURL=meetings.js.map
+
+/***/ }),
+
+/***/ 36785:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Presets = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Presets extends resource_1.APIResource {
+    /**
+     * Creates a preset belonging to the current App
+     *
+     * @example
+     * ```ts
+     * const preset = await client.realtimeKit.presets.create('app_id', {
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   config: {
+     *     max_screenshare_count: 0,
+     *     max_video_streams: { ... },
+     *     media: { ... },
+     *     view_type: 'GROUP_CALL',
+     *   },
+     *   name: 'name',
+     *   ui: {
+     *     design_tokens: { ... },
+     *   },
+     * });
+     * ```
+     */
+    create(appId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/presets`, { body, ...options });
+    }
+    /**
+     * Update a preset by the provided preset ID
+     *
+     * @example
+     * ```ts
+     * const preset = await client.realtimeKit.presets.update(
+     *   'app_id',
+     *   'preset_id',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    update(appId, presetId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/realtime/kit/${appId}/presets/${presetId}`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Deletes a preset using the provided preset ID
+     *
+     * @example
+     * ```ts
+     * const preset = await client.realtimeKit.presets.delete(
+     *   'app_id',
+     *   'preset_id',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(appId, presetId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/realtime/kit/${appId}/presets/${presetId}`, options);
+    }
+    /**
+     * Fetches all the presets belonging to an App.
+     *
+     * @example
+     * ```ts
+     * const preset = await client.realtimeKit.presets.get(
+     *   'app_id',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/presets`, { query, ...options });
+    }
+    /**
+     * Fetches details of a preset using the provided preset ID
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.presets.getPresetById(
+     *     'app_id',
+     *     'preset_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getPresetById(appId, presetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/presets/${presetId}`, options);
+    }
+}
+exports.Presets = Presets;
+//# sourceMappingURL=presets.js.map
+
+/***/ }),
+
+/***/ 38073:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RealtimeKit = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ActiveSessionAPI = __importStar(__nccwpck_require__(46246));
+const active_session_1 = __nccwpck_require__(46246);
+const AnalyticsAPI = __importStar(__nccwpck_require__(4565));
+const analytics_1 = __nccwpck_require__(4565);
+const AppsAPI = __importStar(__nccwpck_require__(16729));
+const apps_1 = __nccwpck_require__(16729);
+const LivestreamsAPI = __importStar(__nccwpck_require__(14378));
+const livestreams_1 = __nccwpck_require__(14378);
+const MeetingsAPI = __importStar(__nccwpck_require__(79387));
+const meetings_1 = __nccwpck_require__(79387);
+const PresetsAPI = __importStar(__nccwpck_require__(36785));
+const presets_1 = __nccwpck_require__(36785);
+const RecordingsAPI = __importStar(__nccwpck_require__(44145));
+const recordings_1 = __nccwpck_require__(44145);
+const SessionsAPI = __importStar(__nccwpck_require__(27964));
+const sessions_1 = __nccwpck_require__(27964);
+const WebhooksAPI = __importStar(__nccwpck_require__(73879));
+const webhooks_1 = __nccwpck_require__(73879);
+class RealtimeKit extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.apps = new AppsAPI.Apps(this._client);
+        this.meetings = new MeetingsAPI.Meetings(this._client);
+        this.presets = new PresetsAPI.Presets(this._client);
+        this.sessions = new SessionsAPI.Sessions(this._client);
+        this.recordings = new RecordingsAPI.Recordings(this._client);
+        this.webhooks = new WebhooksAPI.Webhooks(this._client);
+        this.activeSession = new ActiveSessionAPI.ActiveSession(this._client);
+        this.livestreams = new LivestreamsAPI.Livestreams(this._client);
+        this.analytics = new AnalyticsAPI.Analytics(this._client);
+    }
+}
+exports.RealtimeKit = RealtimeKit;
+RealtimeKit.Apps = apps_1.Apps;
+RealtimeKit.Meetings = meetings_1.Meetings;
+RealtimeKit.Presets = presets_1.Presets;
+RealtimeKit.Sessions = sessions_1.Sessions;
+RealtimeKit.Recordings = recordings_1.Recordings;
+RealtimeKit.Webhooks = webhooks_1.Webhooks;
+RealtimeKit.ActiveSession = active_session_1.ActiveSession;
+RealtimeKit.Livestreams = livestreams_1.Livestreams;
+RealtimeKit.Analytics = analytics_1.Analytics;
+//# sourceMappingURL=realtime-kit.js.map
+
+/***/ }),
+
+/***/ 44145:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Recordings = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Recordings extends resource_1.APIResource {
+    /**
+     * Returns the active recording details for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.recordings.getActiveRecordings(
+     *     'app_id',
+     *     'meeting_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getActiveRecordings(appId, meetingId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/recordings/active-recording/${meetingId}`, options);
+    }
+    /**
+     * Returns details of a recording for the given recording ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.recordings.getOneRecording(
+     *     'app_id',
+     *     'recording_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getOneRecording(appId, recordingId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/recordings/${recordingId}`, options);
+    }
+    /**
+     * Returns all recordings for an App. If the `meeting_id` parameter is passed,
+     * returns all recordings for the given meeting ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.recordings.getRecordings(
+     *     'app_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getRecordings(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/recordings`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Pause/Resume/Stop a given recording ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.recordings.pauseResumeStopRecording(
+     *     '2a95132c15732412d22c1476fa83f27a',
+     *     'recording_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       action: 'stop',
+     *     },
+     *   );
+     * ```
+     */
+    pauseResumeStopRecording(appId, recordingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/realtime/kit/${appId}/recordings/${recordingId}`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Starts recording a meeting. The meeting can be started by an App admin directly,
+     * or a participant with permissions to start a recording, based on the type of
+     * authorization used.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.recordings.startRecordings(
+     *     'app_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       audio_config: {
+     *         channel: 'stereo',
+     *         codec: 'AAC',
+     *         export_file: true,
+     *       },
+     *       file_name_prefix: 'string',
+     *       interactive_config: { type: 'ID3' },
+     *       max_seconds: 60,
+     *       meeting_id: '97440c6a-140b-40a9-9499-b23fd7a3868a',
+     *       realtimekit_bucket_config: { enabled: true },
+     *       video_config: {
+     *         codec: 'H264',
+     *         export_file: true,
+     *         height: 720,
+     *         watermark: {
+     *           position: 'left top',
+     *           size: { height: 1, width: 1 },
+     *           url: 'http://example.com',
+     *         },
+     *         width: 1280,
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    startRecordings(appId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/recordings`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Starts a track recording in a meeting. Track recordings consist of "layers".
+     * Layers are used to map audio/video tracks in a meeting to output destinations.
+     * More information about track recordings is available in the
+     * [Track Recordings Guide Page](https://docs.realtime.cloudflare.com/guides/capabilities/recording/recording-overview).
+     *
+     * @example
+     * ```ts
+     * await client.realtimeKit.recordings.startTrackRecording(
+     *   'app_id',
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     layers: {
+     *       default: {
+     *         file_name_prefix: 'string',
+     *         outputs: [{ type: 'REALTIMEKIT_BUCKET' }],
+     *       },
+     *       'default-video': {
+     *         file_name_prefix: 'string',
+     *         outputs: [{ type: 'REALTIMEKIT_BUCKET' }],
+     *       },
+     *     },
+     *     meeting_id: 'string',
+     *     max_seconds: 60,
+     *   },
+     * );
+     * ```
+     */
+    startTrackRecording(appId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/recordings/track`, {
+            body,
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+}
+exports.Recordings = Recordings;
+//# sourceMappingURL=recordings.js.map
+
+/***/ }),
+
+/***/ 27964:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Sessions = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Sessions extends resource_1.APIResource {
+    /**
+     * Trigger Summary generation of Transcripts for the session ID.
+     *
+     * @example
+     * ```ts
+     * await client.realtimeKit.sessions.generateSummaryOfTranscripts(
+     *   'app_id',
+     *   'session_id',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    generateSummaryOfTranscripts(appId, sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}/summary`, {
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
+    }
+    /**
+     * Returns details of the given peer ID along with call statistics for the given
+     * session ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getParticipantDataFromPeerId(
+     *     'app_id',
+     *     'peer_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getParticipantDataFromPeerId(appId, peerId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/peer-report/${peerId}`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Returns a URL to download all chat messages of the session ID in CSV format.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessionChat(
+     *     'app_id',
+     *     'session_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getSessionChat(appId, sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}/chat`, options);
+    }
+    /**
+     * Returns data of the given session ID including recording details.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessionDetails(
+     *     'app_id',
+     *     'session_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getSessionDetails(appId, sessionId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}`, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Returns details of the given participant ID along with call statistics for the
+     * given session ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessionParticipantDetails(
+     *     'app_id',
+     *     'session_id',
+     *     'participant_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getSessionParticipantDetails(appId, sessionId, participantId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}/participants/${participantId}`, { query, ...options });
+    }
+    /**
+     * Returns a list of participants for the given session ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessionParticipants(
+     *     'app_id',
+     *     'session_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getSessionParticipants(appId, sessionId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}/participants`, { query, ...options });
+    }
+    /**
+     * Returns a Summary URL to download the Summary of Transcripts for the session ID
+     * as plain text.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessionSummary(
+     *     'app_id',
+     *     'session_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getSessionSummary(appId, sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}/summary`, options);
+    }
+    /**
+     * Returns a URL to download the transcript for the session ID in CSV format.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessionTranscripts(
+     *     'app_id',
+     *     'session_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getSessionTranscripts(appId, sessionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions/${sessionId}/transcript`, options);
+    }
+    /**
+     * Returns details of all sessions of an App.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.sessions.getSessions('app_id', {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    getSessions(appId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/sessions`, { query, ...options });
+    }
+}
+exports.Sessions = Sessions;
+//# sourceMappingURL=sessions.js.map
+
+/***/ }),
+
+/***/ 73879:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Webhooks = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Webhooks extends resource_1.APIResource {
+    /**
+     * Adds a new webhook to an App.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.webhooks.createWebhook(
+     *     'app_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       events: [
+     *         'meeting.started',
+     *         'meeting.ended',
+     *         'meeting.participantJoined',
+     *         'meeting.participantLeft',
+     *         'meeting.chatSynced',
+     *         'recording.statusUpdate',
+     *         'livestreaming.statusUpdate',
+     *         'meeting.transcript',
+     *         'meeting.summary',
+     *       ],
+     *       name: 'All events webhook',
+     *       url: 'https://webhook.site/b23a5bbd-c7b0-4ced-a9e2-78ae7889897e',
+     *     },
+     *   );
+     * ```
+     */
+    createWebhook(appId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/realtime/kit/${appId}/webhooks`, { body, ...options });
+    }
+    /**
+     * Removes a webhook for the given webhook ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.webhooks.deleteWebhook(
+     *     'app_id',
+     *     'webhook_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    deleteWebhook(appId, webhookId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/realtime/kit/${appId}/webhooks/${webhookId}`, options);
+    }
+    /**
+     * Edits the webhook details for the given webhook ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.webhooks.editWebhook(
+     *     'app_id',
+     *     'webhook_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    editWebhook(appId, webhookId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/realtime/kit/${appId}/webhooks/${webhookId}`, {
+            body,
+            ...options,
+        });
+    }
+    /**
+     * Returns webhook details for the given webhook ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.webhooks.getWebhookById(
+     *     'app_id',
+     *     'webhook_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    getWebhookById(appId, webhookId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/webhooks/${webhookId}`, options);
+    }
+    /**
+     * Returns details of all webhooks for an App.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.webhooks.getWebhooks('app_id', {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    getWebhooks(appId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/realtime/kit/${appId}/webhooks`, options);
+    }
+    /**
+     * Replace all details for the given webhook ID.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.realtimeKit.webhooks.replaceWebhook(
+     *     'app_id',
+     *     'webhook_id',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       events: [
+     *         'meeting.started',
+     *         'meeting.ended',
+     *         'meeting.participantJoined',
+     *         'meeting.participantLeft',
+     *         'meeting.chatSynced',
+     *         'recording.statusUpdate',
+     *         'livestreaming.statusUpdate',
+     *         'meeting.transcript',
+     *         'meeting.summary',
+     *       ],
+     *       name: 'All events webhook',
+     *       url: 'https://webhook.site/b23a5bbd-c7b0-4ced-a9e2-78ae7889897e',
+     *     },
+     *   );
+     * ```
+     */
+    replaceWebhook(appId, webhookId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/realtime/kit/${appId}/webhooks/${webhookId}`, {
+            body,
+            ...options,
+        });
+    }
+}
+exports.Webhooks = Webhooks;
+//# sourceMappingURL=webhooks.js.map
+
+/***/ }),
+
 /***/ 35177:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -67806,13 +75721,7 @@ class Domains extends resource_1.APIResource {
     /**
      * Update individual domain.
      *
-     * @example
-     * ```ts
-     * const domain = await client.registrar.domains.update(
-     *   'cloudflare.com',
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * );
-     * ```
+     * @deprecated This operation is deprecated and will be removed in a future release. A replacement Registrar API will be announced separately.
      */
     update(domainName, params, options) {
         const { account_id, ...body } = params;
@@ -67824,15 +75733,7 @@ class Domains extends resource_1.APIResource {
     /**
      * List domains handled by Registrar.
      *
-     * @example
-     * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const domain of client.registrar.domains.list({
-     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     * })) {
-     *   // ...
-     * }
-     * ```
+     * @deprecated This operation is deprecated and will be removed in a future release. A replacement Registrar API will be announced separately.
      */
     list(params, options) {
         const { account_id } = params;
@@ -67841,13 +75742,7 @@ class Domains extends resource_1.APIResource {
     /**
      * Show individual domain.
      *
-     * @example
-     * ```ts
-     * const domain = await client.registrar.domains.get(
-     *   'cloudflare.com',
-     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * );
-     * ```
+     * @deprecated This operation is deprecated and will be removed in a future release. A replacement Registrar API will be announced separately.
      */
     get(domainName, params, options) {
         const { account_id } = params;
@@ -67897,16 +75792,255 @@ exports.Registrar = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const DomainsAPI = __importStar(__nccwpck_require__(35177));
 const domains_1 = __nccwpck_require__(35177);
+const RegistrationStatusAPI = __importStar(__nccwpck_require__(33818));
+const registration_status_1 = __nccwpck_require__(33818);
+const UpdateStatusAPI = __importStar(__nccwpck_require__(86390));
+const update_status_1 = __nccwpck_require__(86390);
 class Registrar extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.domains = new DomainsAPI.Domains(this._client);
+        this.registrationStatus = new RegistrationStatusAPI.RegistrationStatus(this._client);
+        this.updateStatus = new UpdateStatusAPI.UpdateStatus(this._client);
+    }
+    /**
+     * Performs real-time, authoritative availability checks directly against domain
+     * registries. Use this endpoint to verify a domain is available before attempting
+     * registration via `POST /registrations`.
+     *
+     * **Important:** Unlike the Search endpoint, these results are authoritative and
+     * reflect current registry status. Always check availability immediately before
+     * registration as domain status can change rapidly.
+     *
+     * **Note:** This endpoint uses POST to accept a list of domains in the request
+     * body. It is a read-only operation — it does not create, modify, or reserve any
+     * domains.
+     *
+     * ### Extension support
+     *
+     * Only domains on extensions supported for programmatic registration by this API
+     * can be registered. If you check a domain on an unsupported extension, the
+     * response will include `registrable: false` with a `reason` field explaining why:
+     *
+     * - `extension_not_supported_via_api` — Cloudflare Registrar supports this
+     *   extension in the dashboard, but it is not yet available for programmatic
+     *   registration via this API. Register via
+     *   `https://dash.cloudflare.com/{account_id}/domains/registrations` instead.
+     * - `extension_not_supported` — This extension is not supported by Cloudflare
+     *   Registrar.
+     * - `extension_disallows_registration` — The extension's registry has temporarily
+     *   or permanently frozen new registrations. No registrar can register domains on
+     *   this extension at this time.
+     * - `domain_premium` — The domain is premium priced. Premium registration is not
+     *   currently supported by this API.
+     * - `domain_unavailable` — The domain is already registered, reserved, or
+     *   otherwise not available for registration on a supported extension.
+     *
+     * The `reason` field is only present when `registrable` is `false`.
+     *
+     * ### Behavior
+     *
+     * - Maximum 20 domains per request
+     * - Pricing is only returned for domains where `registrable: true`
+     * - Results are not cached; each request queries the registry
+     *
+     * ### Workflow
+     *
+     * 1. Call this endpoint with domains the user wants to register.
+     * 2. For each domain where `registrable: true`, present pricing to the user.
+     * 3. If `tier: premium`, note that premium registration is not currently supported
+     *    by this API and do not proceed to `POST /registrations`.
+     * 4. Proceed to `POST /registrations` only for supported non-premium domains.
+     *
+     * @example
+     * ```ts
+     * const response = await client.registrar.check({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   domains: [
+     *     'myawesomebrand.com',
+     *     'myawesomebrand.net',
+     *     'myawesomebrand.org',
+     *     'myawesomebrand.app',
+     *     'myawesomebrand.dev',
+     *   ],
+     * });
+     * ```
+     */
+    check(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/registrar/domain-check`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Searches for domain name suggestions based on a keyword, phrase, or partial
+     * domain name. Returns a list of potentially available domains with pricing
+     * information.
+     *
+     * **Important:** Results are non-authoritative and based on cached data. Always
+     * use the `/domain-check` endpoint to verify real-time availability before
+     * attempting registration.
+     *
+     * Suggestions are scoped to extensions supported for programmatic registration via
+     * this API (`POST /registrations`). Domains on unsupported extensions will not
+     * appear in results, even if they are available at the registry level.
+     *
+     * ### Use cases
+     *
+     * - Brand name discovery (e.g., "acme corp" → acmecorp.com, acmecorp.dev)
+     * - Keyword-based suggestions (e.g., "coffee shop" → coffeeshop.com,
+     *   mycoffeeshop.net)
+     * - Alternative extension discovery (e.g., "example.com" → example.com,
+     *   example.app, example.xyz)
+     *
+     * ### Workflow
+     *
+     * 1. Call this endpoint with a keyword or domain name.
+     * 2. Present suggestions to the user.
+     * 3. Call `/domain-check` with the user's chosen domains to confirm real-time
+     *    availability and pricing.
+     * 4. Proceed to `POST /registrations` only for supported non-premium domains where
+     *    the Check response returns `registrable: true`.
+     *
+     * **Note:** Searching with just a domain extension (e.g., "com" or ".app") is not
+     * supported. Provide a keyword or domain name.
+     *
+     * @example
+     * ```ts
+     * const response = await client.registrar.search({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   q: 'x',
+     * });
+     * ```
+     */
+    search(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/registrar/domain-search`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Registrar = Registrar;
 Registrar.Domains = domains_1.Domains;
 Registrar.DomainsSinglePage = domains_1.DomainsSinglePage;
+Registrar.RegistrationStatus = registration_status_1.RegistrationStatus;
+Registrar.UpdateStatus = update_status_1.UpdateStatus;
 //# sourceMappingURL=registrar.js.map
+
+/***/ }),
+
+/***/ 33818:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RegistrationStatus = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class RegistrationStatus extends resource_1.APIResource {
+    /**
+     * Returns the current status of a domain registration workflow.
+     *
+     * Use this endpoint to poll for completion when the POST response returned
+     * `202 Accepted`. The URL is provided in the `links.self` field of the workflow
+     * status response.
+     *
+     * Poll this endpoint until the workflow reaches a terminal state or a state that
+     * requires user attention.
+     *
+     * **Terminal states:** `succeeded` and `failed` are terminal and always have
+     * `completed: true`.
+     *
+     * **Non-terminal states:**
+     *
+     * - `action_required` has `completed: false` and will not resolve on its own. The
+     *   workflow is paused pending user intervention.
+     * - `blocked` has `completed: false` and indicates the workflow is waiting on a
+     *   third party such as the extension registry or losing registrar. Continue
+     *   polling while informing the user of the delay.
+     *
+     * Use increasing backoff between polls. When `state: blocked`, use a longer
+     * polling interval and do not poll indefinitely.
+     *
+     * A naive polling loop that only checks `completed` can run indefinitely when
+     * `state: action_required`. Break explicitly on `action_required`:
+     *
+     * ```js
+     * let status;
+     * do {
+     *   await new Promise((r) => setTimeout(r, 2000));
+     *   status = await cloudflare.request({
+     *     method: "GET",
+     *     path: reg.result.links.self,
+     *   });
+     * } while (!status.result.completed && status.result.state !== "action_required");
+     *
+     * if (status.result.state === "action_required") {
+     *   // Surface context.action and context.confirmation_sent_to to the user.
+     *   // Do not re-submit the registration request.
+     * }
+     * ```
+     *
+     * @example
+     * ```ts
+     * const workflowStatus =
+     *   await client.registrar.registrationStatus.get(
+     *     'example.com',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(domainName, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/registrar/registrations/${domainName}/registration-status`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.RegistrationStatus = RegistrationStatus;
+//# sourceMappingURL=registration-status.js.map
+
+/***/ }),
+
+/***/ 86390:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UpdateStatus = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class UpdateStatus extends resource_1.APIResource {
+    /**
+     * Returns the current status of a domain update workflow.
+     *
+     * Use this endpoint to poll for completion when the PATCH response returned
+     * `202 Accepted`. The URL is provided in the `links.self` field of the workflow
+     * status response.
+     *
+     * Poll this endpoint until the workflow reaches a terminal state or a state that
+     * requires user attention.
+     *
+     * Use increasing backoff between polls. When the workflow remains blocked on a
+     * third party, use a longer polling interval and do not poll indefinitely.
+     *
+     * @example
+     * ```ts
+     * const workflowStatus =
+     *   await client.registrar.updateStatus.get('example.com', {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   });
+     * ```
+     */
+    get(domainName, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/registrar/registrations/${domainName}/update-status`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.UpdateStatus = UpdateStatus;
+//# sourceMappingURL=update-status.js.map
 
 /***/ }),
 
@@ -68017,7 +76151,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Recipients extends resource_1.APIResource {
     /**
-     * Create a new share recipient
+     * Adds a recipient to a resource share, granting them access to the shared
+     * resources.
      *
      * @example
      * ```ts
@@ -68145,7 +76280,8 @@ class ResourceSharing extends resource_1.APIResource {
         this.resources = new ResourcesAPI.Resources(this._client);
     }
     /**
-     * Create a new share
+     * Creates a new resource share for sharing Cloudflare resources with other
+     * accounts or organizations.
      *
      * @example
      * ```ts
@@ -68268,7 +76404,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Resources extends resource_1.APIResource {
     /**
-     * Create a new share resource
+     * Adds a resource to an existing share, making it available to share recipients.
      *
      * @example
      * ```ts
@@ -68376,6 +76512,254 @@ class ResourceListResponsesV4PagePaginationArray extends pagination_1.V4PagePagi
 exports.ResourceListResponsesV4PagePaginationArray = ResourceListResponsesV4PagePaginationArray;
 Resources.ResourceListResponsesV4PagePaginationArray = ResourceListResponsesV4PagePaginationArray;
 //# sourceMappingURL=resources.js.map
+
+/***/ }),
+
+/***/ 20356:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AccountTags = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class AccountTags extends resource_1.APIResource {
+    /**
+     * Creates or updates tags for a specific account-level resource.
+     *
+     * @example
+     * ```ts
+     * const accountTag =
+     *   await client.resourceTagging.accountTags.update({
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     resource_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     resource_type: 'worker',
+     *     worker_id: '3f72a691-44b3-4c11-8642-c18a88ddaa5e',
+     *   });
+     * ```
+     */
+    update(params, options) {
+        const { account_id, 'If-Match': ifMatch, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/tags`, {
+            body,
+            ...options,
+            headers: { ...(ifMatch != null ? { 'If-Match': ifMatch } : undefined), ...options?.headers },
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Removes all tags from a specific account-level resource.
+     */
+    delete(params, options) {
+        const { account_id, 'If-Match': ifMatch } = params;
+        return this._client.delete(`/accounts/${account_id}/tags`, {
+            ...options,
+            headers: {
+                Accept: '*/*',
+                ...(ifMatch != null ? { 'If-Match': ifMatch } : undefined),
+                ...options?.headers,
+            },
+        });
+    }
+    /**
+     * Retrieves tags for a specific account-level resource.
+     */
+    get(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/tags`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.AccountTags = AccountTags;
+//# sourceMappingURL=account-tags.js.map
+
+/***/ }),
+
+/***/ 62371:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.KeyListResponsesCursorPaginationAfter = exports.Keys = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Keys extends resource_1.APIResource {
+    /**
+     * Lists all distinct tag keys used across resources in an account.
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/tags/keys`, KeyListResponsesCursorPaginationAfter, { query, ...options });
+    }
+}
+exports.Keys = Keys;
+class KeyListResponsesCursorPaginationAfter extends pagination_1.CursorPaginationAfter {
+}
+exports.KeyListResponsesCursorPaginationAfter = KeyListResponsesCursorPaginationAfter;
+Keys.KeyListResponsesCursorPaginationAfter = KeyListResponsesCursorPaginationAfter;
+//# sourceMappingURL=keys.js.map
+
+/***/ }),
+
+/***/ 20977:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ResourceTaggingListResponsesCursorPaginationAfter = exports.ResourceTagging = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const AccountTagsAPI = __importStar(__nccwpck_require__(20356));
+const account_tags_1 = __nccwpck_require__(20356);
+const KeysAPI = __importStar(__nccwpck_require__(62371));
+const keys_1 = __nccwpck_require__(62371);
+const ValuesAPI = __importStar(__nccwpck_require__(48897));
+const values_1 = __nccwpck_require__(48897);
+const ZoneTagsAPI = __importStar(__nccwpck_require__(22651));
+const zone_tags_1 = __nccwpck_require__(22651);
+const pagination_1 = __nccwpck_require__(30404);
+class ResourceTagging extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.accountTags = new AccountTagsAPI.AccountTags(this._client);
+        this.zoneTags = new ZoneTagsAPI.ZoneTags(this._client);
+        this.keys = new KeysAPI.Keys(this._client);
+        this.values = new ValuesAPI.Values(this._client);
+    }
+    /**
+     * Lists all tagged resources for an account.
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/tags/resources`, ResourceTaggingListResponsesCursorPaginationAfter, { query, ...options });
+    }
+}
+exports.ResourceTagging = ResourceTagging;
+class ResourceTaggingListResponsesCursorPaginationAfter extends pagination_1.CursorPaginationAfter {
+}
+exports.ResourceTaggingListResponsesCursorPaginationAfter = ResourceTaggingListResponsesCursorPaginationAfter;
+ResourceTagging.ResourceTaggingListResponsesCursorPaginationAfter =
+    ResourceTaggingListResponsesCursorPaginationAfter;
+ResourceTagging.AccountTags = account_tags_1.AccountTags;
+ResourceTagging.ZoneTags = zone_tags_1.ZoneTags;
+ResourceTagging.Keys = keys_1.Keys;
+ResourceTagging.KeyListResponsesCursorPaginationAfter = keys_1.KeyListResponsesCursorPaginationAfter;
+ResourceTagging.Values = values_1.Values;
+ResourceTagging.ValueListResponsesCursorPaginationAfter = values_1.ValueListResponsesCursorPaginationAfter;
+//# sourceMappingURL=resource-tagging.js.map
+
+/***/ }),
+
+/***/ 48897:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ValueListResponsesCursorPaginationAfter = exports.Values = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Values extends resource_1.APIResource {
+    /**
+     * Lists all distinct values for a given tag key, optionally filtered by resource
+     * type.
+     */
+    list(tagKey, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/tags/values/${tagKey}`, ValueListResponsesCursorPaginationAfter, { query, ...options });
+    }
+}
+exports.Values = Values;
+class ValueListResponsesCursorPaginationAfter extends pagination_1.CursorPaginationAfter {
+}
+exports.ValueListResponsesCursorPaginationAfter = ValueListResponsesCursorPaginationAfter;
+Values.ValueListResponsesCursorPaginationAfter = ValueListResponsesCursorPaginationAfter;
+//# sourceMappingURL=values.js.map
+
+/***/ }),
+
+/***/ 22651:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ZoneTags = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class ZoneTags extends resource_1.APIResource {
+    /**
+     * Creates or updates tags for a specific zone-level resource. Replaces all
+     * existing tags for the resource.
+     *
+     * @example
+     * ```ts
+     * const zoneTag =
+     *   await client.resourceTagging.zoneTags.update({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     resource_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     resource_type: 'zone',
+     *   });
+     * ```
+     */
+    update(params, options) {
+        const { zone_id, 'If-Match': ifMatch, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/tags`, {
+            body,
+            ...options,
+            headers: { ...(ifMatch != null ? { 'If-Match': ifMatch } : undefined), ...options?.headers },
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Removes all tags from a specific zone-level resource.
+     */
+    delete(params, options) {
+        const { zone_id, 'If-Match': ifMatch } = params;
+        return this._client.delete(`/zones/${zone_id}/tags`, {
+            ...options,
+            headers: {
+                Accept: '*/*',
+                ...(ifMatch != null ? { 'If-Match': ifMatch } : undefined),
+                ...options?.headers,
+            },
+        });
+    }
+    /**
+     * Retrieves tags for a specific zone-level resource.
+     */
+    get(params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.get(`/zones/${zone_id}/tags`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.ZoneTags = ZoneTags;
+//# sourceMappingURL=zone-tags.js.map
 
 /***/ }),
 
@@ -68686,7 +77070,7 @@ Lists.ItemListResponsesCursorPaginationAfter = items_1.ItemListResponsesCursorPa
 
 /***/ }),
 
-/***/ 57307:
+/***/ 79688:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -69601,7 +77985,7 @@ class SchemaValidation extends resource_1.APIResource {
 }
 exports.SchemaValidation = SchemaValidation;
 SchemaValidation.Schemas = schemas_1.Schemas;
-SchemaValidation.SchemaListResponsesV4PagePaginationArray = schemas_1.SchemaListResponsesV4PagePaginationArray;
+SchemaValidation.PublicSchemasV4PagePaginationArray = schemas_1.PublicSchemasV4PagePaginationArray;
 SchemaValidation.Settings = settings_1.Settings;
 //# sourceMappingURL=schema-validation.js.map
 
@@ -69614,24 +77998,24 @@ SchemaValidation.Settings = settings_1.Settings;
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.SchemaListResponsesV4PagePaginationArray = exports.Schemas = void 0;
+exports.PublicSchemasV4PagePaginationArray = exports.Schemas = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Schemas extends resource_1.APIResource {
     /**
-     * Upload a schema
+     * Uploads a new OpenAPI schema for API Shield schema validation. The schema
+     * defines expected request/response formats for API endpoints.
      *
      * @example
      * ```ts
-     * const schema = await client.schemaValidation.schemas.create(
-     *   {
+     * const publicSchema =
+     *   await client.schemaValidation.schemas.create({
      *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     kind: 'openapi_v3',
      *     name: 'petstore schema',
      *     source: '<schema file contents>',
      *     validation_enabled: true,
-     *   },
-     * );
+     *   });
      * ```
      */
     create(params, options) {
@@ -69642,12 +78026,12 @@ class Schemas extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List all uploaded schemas
+     * Lists all OpenAPI schemas uploaded to API Shield with pagination support.
      *
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const schemaListResponse of client.schemaValidation.schemas.list(
+     * for await (const publicSchema of client.schemaValidation.schemas.list(
      *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * )) {
      *   // ...
@@ -69656,10 +78040,11 @@ class Schemas extends resource_1.APIResource {
      */
     list(params, options) {
         const { zone_id, ...query } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/schema_validation/schemas`, SchemaListResponsesV4PagePaginationArray, { query, ...options });
+        return this._client.getAPIList(`/zones/${zone_id}/schema_validation/schemas`, PublicSchemasV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete a schema
+     * Permanently removes an uploaded OpenAPI schema from API Shield. Operations using
+     * this schema will lose their validation rules.
      *
      * @example
      * ```ts
@@ -69674,14 +78059,16 @@ class Schemas extends resource_1.APIResource {
         return this._client.delete(`/zones/${zone_id}/schema_validation/schemas/${schemaId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Edit details of a schema to enable validation
+     * Modifies an existing OpenAPI schema in API Shield, updating the validation rules
+     * for associated API operations.
      *
      * @example
      * ```ts
-     * const response = await client.schemaValidation.schemas.edit(
-     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
-     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * );
+     * const publicSchema =
+     *   await client.schemaValidation.schemas.edit(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
      * ```
      */
     edit(schemaId, params, options) {
@@ -69692,14 +78079,16 @@ class Schemas extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get details of a schema
+     * Gets the contents and metadata of a specific OpenAPI schema uploaded to API
+     * Shield.
      *
      * @example
      * ```ts
-     * const schema = await client.schemaValidation.schemas.get(
-     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
-     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * );
+     * const publicSchema =
+     *   await client.schemaValidation.schemas.get(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
      * ```
      */
     get(schemaId, params, options) {
@@ -69711,10 +78100,10 @@ class Schemas extends resource_1.APIResource {
     }
 }
 exports.Schemas = Schemas;
-class SchemaListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+class PublicSchemasV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
-exports.SchemaListResponsesV4PagePaginationArray = SchemaListResponsesV4PagePaginationArray;
-Schemas.SchemaListResponsesV4PagePaginationArray = SchemaListResponsesV4PagePaginationArray;
+exports.PublicSchemasV4PagePaginationArray = PublicSchemasV4PagePaginationArray;
+Schemas.PublicSchemasV4PagePaginationArray = PublicSchemasV4PagePaginationArray;
 //# sourceMappingURL=schemas.js.map
 
 /***/ }),
@@ -69731,7 +78120,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Operations extends resource_1.APIResource {
     /**
-     * Update per-operation schema validation setting
+     * Fully updates schema validation settings for a specific API operation.
      *
      * @example
      * ```ts
@@ -69753,7 +78142,7 @@ class Operations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List per-operation schema validation settings
+     * Lists all per-operation schema validation settings configured for the zone.
      *
      * @example
      * ```ts
@@ -69770,7 +78159,8 @@ class Operations extends resource_1.APIResource {
         return this._client.getAPIList(`/zones/${zone_id}/schema_validation/settings/operations`, OperationListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Delete per-operation schema validation setting
+     * Removes custom schema validation settings for a specific API operation,
+     * reverting to zone-level defaults.
      *
      * @example
      * ```ts
@@ -69786,7 +78176,8 @@ class Operations extends resource_1.APIResource {
         return this._client.delete(`/zones/${zone_id}/schema_validation/settings/operations/${operationId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Bulk edit per-operation schema validation settings
+     * Updates schema validation settings for multiple API operations in a single
+     * request. Efficient for applying consistent validation rules across endpoints.
      *
      * @example
      * ```ts
@@ -69810,7 +78201,8 @@ class Operations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get per-operation schema validation setting
+     * Retrieves the schema validation settings configured for a specific API
+     * operation.
      *
      * @example
      * ```ts
@@ -69875,7 +78267,8 @@ class Settings extends resource_1.APIResource {
         this.operations = new OperationsAPI.Operations(this._client);
     }
     /**
-     * Update global schema validation settings
+     * Fully updates global schema validation settings for a zone, replacing existing
+     * configuration.
      *
      * @example
      * ```ts
@@ -69894,7 +78287,8 @@ class Settings extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Edit global schema validation settings
+     * Partially updates global schema validation settings for a zone using PATCH
+     * semantics.
      *
      * @example
      * ```ts
@@ -69912,7 +78306,7 @@ class Settings extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get global schema validation settings
+     * Retrieves the current global schema validation settings for a zone.
      *
      * @example
      * ```ts
@@ -70008,7 +78402,6 @@ class SecretsStore extends resource_1.APIResource {
 }
 exports.SecretsStore = SecretsStore;
 SecretsStore.Stores = stores_1.Stores;
-SecretsStore.StoreCreateResponsesSinglePage = stores_1.StoreCreateResponsesSinglePage;
 SecretsStore.StoreListResponsesV4PagePaginationArray = stores_1.StoreListResponsesV4PagePaginationArray;
 SecretsStore.Quota = quota_1.Quota;
 //# sourceMappingURL=secrets-store.js.map
@@ -70022,7 +78415,7 @@ SecretsStore.Quota = quota_1.Quota;
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.SecretBulkDeleteResponsesSinglePage = exports.SecretListResponsesV4PagePaginationArray = exports.SecretCreateResponsesSinglePage = exports.Secrets = void 0;
+exports.SecretListResponsesV4PagePaginationArray = exports.SecretCreateResponsesSinglePage = exports.Secrets = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Secrets extends resource_1.APIResource {
@@ -70039,7 +78432,7 @@ class Secrets extends resource_1.APIResource {
      *     body: [
      *       {
      *         name: 'MY_API_KEY',
-     *         scopes: ['workers', 'ai_gateway'],
+     *         scopes: ['workers', 'ai_gateway', 'dex', 'access'],
      *         value: 'api-token-secret-123',
      *       },
      *     ],
@@ -70093,18 +78486,16 @@ class Secrets extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const secretBulkDeleteResponse of client.secretsStore.stores.secrets.bulkDelete(
-     *   '023e105f4ecef8ad9ca31a8372d0c353',
-     *   { account_id: '985e105f4ecef8ad9ca31a8372d0c353' },
-     * )) {
-     *   // ...
-     * }
+     * const response =
+     *   await client.secretsStore.stores.secrets.bulkDelete(
+     *     '023e105f4ecef8ad9ca31a8372d0c353',
+     *     { account_id: '985e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
      * ```
      */
     bulkDelete(storeId, params, options) {
         const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/secrets_store/stores/${storeId}/secrets`, SecretBulkDeleteResponsesSinglePage, { method: 'delete', ...options });
+        return this._client.delete(`/accounts/${account_id}/secrets_store/stores/${storeId}/secrets`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
      * Duplicates the secret, keeping the value
@@ -70118,7 +78509,7 @@ class Secrets extends resource_1.APIResource {
      *     {
      *       account_id: '985e105f4ecef8ad9ca31a8372d0c353',
      *       name: 'MY_API_KEY',
-     *       scopes: ['workers', 'ai_gateway'],
+     *       scopes: ['workers', 'ai_gateway', 'dex', 'access'],
      *     },
      *   );
      * ```
@@ -70171,12 +78562,8 @@ exports.SecretCreateResponsesSinglePage = SecretCreateResponsesSinglePage;
 class SecretListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
 exports.SecretListResponsesV4PagePaginationArray = SecretListResponsesV4PagePaginationArray;
-class SecretBulkDeleteResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.SecretBulkDeleteResponsesSinglePage = SecretBulkDeleteResponsesSinglePage;
 Secrets.SecretCreateResponsesSinglePage = SecretCreateResponsesSinglePage;
 Secrets.SecretListResponsesV4PagePaginationArray = SecretListResponsesV4PagePaginationArray;
-Secrets.SecretBulkDeleteResponsesSinglePage = SecretBulkDeleteResponsesSinglePage;
 //# sourceMappingURL=secrets.js.map
 
 /***/ }),
@@ -70211,7 +78598,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.StoreListResponsesV4PagePaginationArray = exports.StoreCreateResponsesSinglePage = exports.Stores = void 0;
+exports.StoreListResponsesV4PagePaginationArray = exports.Stores = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const SecretsAPI = __importStar(__nccwpck_require__(80500));
 const secrets_1 = __nccwpck_require__(80500);
@@ -70226,20 +78613,18 @@ class Stores extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const storeCreateResponse of client.secretsStore.stores.create(
-     *   {
-     *     account_id: '985e105f4ecef8ad9ca31a8372d0c353',
-     *     body: [{ name: 'service_x_keys' }],
-     *   },
-     * )) {
-     *   // ...
-     * }
+     * const store = await client.secretsStore.stores.create({
+     *   account_id: '985e105f4ecef8ad9ca31a8372d0c353',
+     *   name: 'service_x_keys',
+     * });
      * ```
      */
     create(params, options) {
-        const { account_id, body } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/secrets_store/stores`, StoreCreateResponsesSinglePage, { body: body, method: 'post', ...options });
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/secrets_store/stores`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Lists all the stores in an account
@@ -70275,18 +78660,13 @@ class Stores extends resource_1.APIResource {
     }
 }
 exports.Stores = Stores;
-class StoreCreateResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.StoreCreateResponsesSinglePage = StoreCreateResponsesSinglePage;
 class StoreListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
 exports.StoreListResponsesV4PagePaginationArray = StoreListResponsesV4PagePaginationArray;
-Stores.StoreCreateResponsesSinglePage = StoreCreateResponsesSinglePage;
 Stores.StoreListResponsesV4PagePaginationArray = StoreListResponsesV4PagePaginationArray;
 Stores.Secrets = secrets_1.Secrets;
 Stores.SecretCreateResponsesSinglePage = secrets_1.SecretCreateResponsesSinglePage;
 Stores.SecretListResponsesV4PagePaginationArray = secrets_1.SecretListResponsesV4PagePaginationArray;
-Stores.SecretBulkDeleteResponsesSinglePage = secrets_1.SecretBulkDeleteResponsesSinglePage;
 //# sourceMappingURL=stores.js.map
 
 /***/ }),
@@ -70405,7 +78785,8 @@ class Insights extends resource_1.APIResource {
         return this._client.getAPIList(`/${accountOrZone}/${accountOrZoneId}/security-center/insights`, InsightListResponsesV4PagePagination, { query, ...options });
     }
     /**
-     * Archive Security Center Insight
+     * Archives a Security Center insight for an account or zone, removing it from the
+     * active insights list while preserving historical data.
      */
     dismiss(issueId, params, options) {
         const { account_id, zone_id, ...body } = params;
@@ -70572,7 +78953,21 @@ SecurityCenter.InsightListResponsesV4PagePagination = insights_1.InsightListResp
 
 /***/ }),
 
-/***/ 53325:
+/***/ 10134:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SecurityTXT = void 0;
+var security_txt_1 = __nccwpck_require__(12755);
+Object.defineProperty(exports, "SecurityTXT", ({ enumerable: true, get: function () { return security_txt_1.SecurityTXT; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 12755:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -70583,7 +78978,8 @@ exports.SecurityTXT = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class SecurityTXT extends resource_1.APIResource {
     /**
-     * Update security.txt
+     * Updates the security.txt file configuration for a zone, which provides security
+     * researchers with vulnerability reporting information.
      *
      * @example
      * ```ts
@@ -70597,7 +78993,8 @@ class SecurityTXT extends resource_1.APIResource {
         return this._client.put(`/zones/${zone_id}/security-center/securitytxt`, { body, ...options });
     }
     /**
-     * Delete security.txt
+     * Removes the security.txt file configuration for a zone. The
+     * /.well-known/security.txt endpoint will no longer be served.
      *
      * @example
      * ```ts
@@ -70611,7 +79008,8 @@ class SecurityTXT extends resource_1.APIResource {
         return this._client.delete(`/zones/${zone_id}/security-center/securitytxt`, options);
     }
     /**
-     * Get security.txt
+     * Retrieves the current security.txt file configuration for a zone, used for
+     * security vulnerability reporting.
      *
      * @example
      * ```ts
@@ -70637,7 +79035,7 @@ exports.SecurityTXT = SecurityTXT;
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.AuditLogsV4PagePaginationArray = exports.TokensV4PagePaginationArray = exports.SubscriptionsSinglePage = exports.RolesV4PagePaginationArray = exports.MembersV4PagePaginationArray = void 0;
+exports.CloudflareTunnelsV4PagePaginationArray = exports.AuditLogsV4PagePaginationArray = exports.TokensV4PagePaginationArray = exports.SubscriptionsSinglePage = exports.RolesV4PagePaginationArray = exports.MembersV4PagePaginationArray = void 0;
 const pagination_1 = __nccwpck_require__(30404);
 class MembersV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
@@ -70654,6 +79052,9 @@ exports.TokensV4PagePaginationArray = TokensV4PagePaginationArray;
 class AuditLogsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
 exports.AuditLogsV4PagePaginationArray = AuditLogsV4PagePaginationArray;
+class CloudflareTunnelsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.CloudflareTunnelsV4PagePaginationArray = CloudflareTunnelsV4PagePaginationArray;
 //# sourceMappingURL=shared.js.map
 
 /***/ }),
@@ -70692,45 +79093,32 @@ exports.Content = Content;
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.RuleDeleteResponsesSinglePage = exports.RuleListResponsesSinglePage = exports.RuleUpdateResponsesSinglePage = exports.Rules = void 0;
+exports.Rules = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const pagination_1 = __nccwpck_require__(30404);
 class Rules extends resource_1.APIResource {
     /**
      * Updates all snippet rules belonging to the zone.
      */
     update(params, options) {
         const { zone_id, ...body } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/snippets/snippet_rules`, RuleUpdateResponsesSinglePage, { body, method: 'put', ...options });
+        return this._client.put(`/zones/${zone_id}/snippets/snippet_rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
      * Fetches all snippet rules belonging to the zone.
      */
     list(params, options) {
         const { zone_id } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/snippets/snippet_rules`, RuleListResponsesSinglePage, options);
+        return this._client.get(`/zones/${zone_id}/snippets/snippet_rules`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
      * Deletes all snippet rules belonging to the zone.
      */
     delete(params, options) {
         const { zone_id } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/snippets/snippet_rules`, RuleDeleteResponsesSinglePage, { method: 'delete', ...options });
+        return this._client.delete(`/zones/${zone_id}/snippets/snippet_rules`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Rules = Rules;
-class RuleUpdateResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.RuleUpdateResponsesSinglePage = RuleUpdateResponsesSinglePage;
-class RuleListResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.RuleListResponsesSinglePage = RuleListResponsesSinglePage;
-class RuleDeleteResponsesSinglePage extends pagination_1.SinglePage {
-}
-exports.RuleDeleteResponsesSinglePage = RuleDeleteResponsesSinglePage;
-Rules.RuleUpdateResponsesSinglePage = RuleUpdateResponsesSinglePage;
-Rules.RuleListResponsesSinglePage = RuleListResponsesSinglePage;
-Rules.RuleDeleteResponsesSinglePage = RuleDeleteResponsesSinglePage;
 //# sourceMappingURL=rules.js.map
 
 /***/ }),
@@ -70818,9 +79206,6 @@ exports.SnippetListResponsesV4PagePaginationArray = SnippetListResponsesV4PagePa
 Snippets.SnippetListResponsesV4PagePaginationArray = SnippetListResponsesV4PagePaginationArray;
 Snippets.Content = content_1.Content;
 Snippets.Rules = rules_1.Rules;
-Snippets.RuleUpdateResponsesSinglePage = rules_1.RuleUpdateResponsesSinglePage;
-Snippets.RuleListResponsesSinglePage = rules_1.RuleListResponsesSinglePage;
-Snippets.RuleDeleteResponsesSinglePage = rules_1.RuleDeleteResponsesSinglePage;
 //# sourceMappingURL=snippets.js.map
 
 /***/ }),
@@ -71423,9 +79808,9 @@ class ScheduleResource extends resource_1.APIResource {
      * ```
      */
     create(url, params, options) {
-        const { zone_id, region } = params;
+        const { zone_id, frequency, region } = params;
         return this._client.post(`/zones/${zone_id}/speed_api/schedule/${url}`, {
-            query: { region },
+            query: { frequency, region },
             ...options,
         })._thenUnwrap((obj) => obj.result);
     }
@@ -71587,7 +79972,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CertificatePackListResponsesSinglePage = exports.CertificatePacks = void 0;
+exports.CertificatePackListResponsesV4PagePaginationArray = exports.CertificatePacks = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const QuotaAPI = __importStar(__nccwpck_require__(92882));
 const quota_1 = __nccwpck_require__(92882);
@@ -71639,7 +80024,7 @@ class CertificatePacks extends resource_1.APIResource {
      */
     list(params, options) {
         const { zone_id, ...query } = params;
-        return this._client.getAPIList(`/zones/${zone_id}/ssl/certificate_packs`, CertificatePackListResponsesSinglePage, { query, ...options });
+        return this._client.getAPIList(`/zones/${zone_id}/ssl/certificate_packs`, CertificatePackListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
      * For a given zone, delete an advanced certificate pack.
@@ -71695,10 +80080,11 @@ class CertificatePacks extends resource_1.APIResource {
     }
 }
 exports.CertificatePacks = CertificatePacks;
-class CertificatePackListResponsesSinglePage extends pagination_1.SinglePage {
+class CertificatePackListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
-exports.CertificatePackListResponsesSinglePage = CertificatePackListResponsesSinglePage;
-CertificatePacks.CertificatePackListResponsesSinglePage = CertificatePackListResponsesSinglePage;
+exports.CertificatePackListResponsesV4PagePaginationArray = CertificatePackListResponsesV4PagePaginationArray;
+CertificatePacks.CertificatePackListResponsesV4PagePaginationArray =
+    CertificatePackListResponsesV4PagePaginationArray;
 CertificatePacks.Quota = quota_1.Quota;
 //# sourceMappingURL=certificate-packs.js.map
 
@@ -71814,7 +80200,7 @@ class SSL extends resource_1.APIResource {
 exports.SSL = SSL;
 SSL.Analyze = analyze_1.Analyze;
 SSL.CertificatePacks = certificate_packs_1.CertificatePacks;
-SSL.CertificatePackListResponsesSinglePage = certificate_packs_1.CertificatePackListResponsesSinglePage;
+SSL.CertificatePackListResponsesV4PagePaginationArray = certificate_packs_1.CertificatePackListResponsesV4PagePaginationArray;
 SSL.Recommendations = recommendations_1.Recommendations;
 SSL.Universal = universal_1.Universal;
 SSL.VerificationResource = verification_1.VerificationResource;
@@ -71978,9 +80364,8 @@ exports.VerificationResource = VerificationResource;
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.AudioSinglePage = exports.AudioTracks = void 0;
+exports.AudioTracks = void 0;
 const resource_1 = __nccwpck_require__(59108);
-const pagination_1 = __nccwpck_require__(30404);
 class AudioTracks extends resource_1.APIResource {
     /**
      * Deletes additional audio tracks on a video. Deleting a default audio track is
@@ -72047,25 +80432,18 @@ class AudioTracks extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const audio of client.stream.audioTracks.get(
+     * const audioTrack = await client.stream.audioTracks.get(
      *   'ea95132c15732412d22c1476fa83f27a',
      *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-     * )) {
-     *   // ...
-     * }
+     * );
      * ```
      */
     get(identifier, params, options) {
         const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/stream/${identifier}/audio`, AudioSinglePage, options);
+        return this._client.get(`/accounts/${account_id}/stream/${identifier}/audio`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.AudioTracks = AudioTracks;
-class AudioSinglePage extends pagination_1.SinglePage {
-}
-exports.AudioSinglePage = AudioSinglePage;
-AudioTracks.AudioSinglePage = AudioSinglePage;
 //# sourceMappingURL=audio-tracks.js.map
 
 /***/ }),
@@ -72307,7 +80685,7 @@ class ClipResource extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const clip = await client.stream.clip.create({
+     * const video = await client.stream.clip.create({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   clippedFromVideoUID: '023e105f4ecef8ad9ca31a8372d0c353',
      *   endTimeSeconds: 0,
@@ -72342,7 +80720,6 @@ class Copy extends resource_1.APIResource {
      * ```ts
      * const video = await client.stream.copy.create({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   url: 'https://example.com/myvideo.mp4',
      * });
      * ```
      */
@@ -72414,29 +80791,24 @@ const resource_1 = __nccwpck_require__(59108);
 class Downloads extends resource_1.APIResource {
     /**
      * Creates a download for a video when a video is ready to view. Use
-     * `/downloads/{download_type}` instead for type-specific downloads.
+     * `/downloads/{download_type}` instead for type-specific downloads. Available
+     * types are `default` and `audio`.
      *
      * @example
      * ```ts
      * const download = await client.stream.downloads.create(
      *   'ea95132c15732412d22c1476fa83f27a',
-     *   {
-     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: {},
-     *   },
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
      */
     create(identifier, params, options) {
-        const { account_id, body } = params;
-        return this._client.post(`/accounts/${account_id}/stream/${identifier}/downloads`, {
-            body: body,
-            ...options,
-        })._thenUnwrap((obj) => obj.result);
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/stream/${identifier}/downloads`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
      * Delete the downloads for a video. Use `/downloads/{download_type}` instead for
-     * type-specific downloads.
+     * type-specific downloads. Available types are `default` and `audio`.
      *
      * @example
      * ```ts
@@ -72496,7 +80868,10 @@ class Embed extends resource_1.APIResource {
      */
     get(identifier, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/stream/${identifier}/embed`, options);
+        return this._client.get(`/accounts/${account_id}/stream/${identifier}/embed`, {
+            ...options,
+            headers: { Accept: 'text/html', ...options?.headers },
+        });
     }
 }
 exports.Embed = Embed;
@@ -72898,17 +81273,15 @@ class Stream extends resource_1.APIResource {
      * ```ts
      * await client.stream.create({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   body: {},
      *   'Tus-Resumable': '1.0.0',
      *   'Upload-Length': 0,
      * });
      * ```
      */
     create(params, options) {
-        const { account_id, body, 'Tus-Resumable': tusResumable, 'Upload-Length': uploadLength, direct_user, 'Upload-Creator': uploadCreator, 'Upload-Metadata': uploadMetadata, } = params;
+        const { account_id, 'Tus-Resumable': tusResumable, 'Upload-Length': uploadLength, direct_user, 'Upload-Creator': uploadCreator, 'Upload-Metadata': uploadMetadata, } = params;
         return this._client.post(`/accounts/${account_id}/stream`, {
             query: { direct_user },
-            body: body,
             ...options,
             headers: {
                 Accept: '*/*',
@@ -72996,7 +81369,6 @@ class VideosSinglePage extends pagination_1.SinglePage {
 exports.VideosSinglePage = VideosSinglePage;
 Stream.VideosSinglePage = VideosSinglePage;
 Stream.AudioTracks = audio_tracks_1.AudioTracks;
-Stream.AudioSinglePage = audio_tracks_1.AudioSinglePage;
 Stream.Videos = videos_1.Videos;
 Stream.ClipResource = clip_1.ClipResource;
 Stream.Copy = copy_1.Copy;
@@ -73126,13 +81498,12 @@ class Watermarks extends resource_1.APIResource {
      * ```ts
      * const watermark = await client.stream.watermarks.create({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   file: '@/Users/rchen/Downloads/watermark.png',
      * });
      * ```
      */
     create(params, options) {
         const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/stream/watermarks`, Core.multipartFormRequestOptions({ body, ...options }))._thenUnwrap((obj) => obj.result);
+        return this._client.post(`/accounts/${account_id}/stream/watermarks`, Core.maybeMultipartFormRequestOptions({ body, ...options }))._thenUnwrap((obj) => obj.result);
     }
     /**
      * Lists all watermark profiles for an account.
@@ -73208,7 +81579,6 @@ class Webhooks extends resource_1.APIResource {
      * ```ts
      * const webhook = await client.stream.webhooks.update({
      *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *   notificationUrl: 'https://example.com',
      * });
      * ```
      */
@@ -73247,6 +81617,437 @@ class Webhooks extends resource_1.APIResource {
 }
 exports.Webhooks = Webhooks;
 //# sourceMappingURL=webhooks.js.map
+
+/***/ }),
+
+/***/ 39409:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TokenConfigsV4PagePaginationArray = exports.Configuration = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const CredentialsAPI = __importStar(__nccwpck_require__(15053));
+const credentials_1 = __nccwpck_require__(15053);
+const pagination_1 = __nccwpck_require__(30404);
+class Configuration extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.credentials = new CredentialsAPI.Credentials(this._client);
+    }
+    /**
+     * Create a new Token Validation configuration
+     *
+     * @example
+     * ```ts
+     * const tokenConfig =
+     *   await client.tokenValidation.configuration.create({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     credentials: {
+     *       keys: [
+     *         {
+     *           alg: 'ES256',
+     *           crv: 'P-256',
+     *           kid: '38013f13-c266-4eec-a72a-92ec92779f21',
+     *           kty: 'EC',
+     *           x: 'KN53JRwN3wCjm2o39bvZUX2VdrsHzS8pxOAGjm8m7EQ',
+     *           y: 'lnkkzIxaveggz-HFhcMWW15nxvOj0Z_uQsXbpK0GFcY',
+     *         },
+     *       ],
+     *     },
+     *     description:
+     *       'Long description for Token Validation Configuration',
+     *     title: 'Example Token Validation Configuration',
+     *     token_sources: [
+     *       'http.request.headers["x-auth"][0]',
+     *       'http.request.cookies["Authorization"][0]',
+     *     ],
+     *     token_type: 'JWT',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/token_validation/config`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all token validation configurations for this zone
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const tokenConfig of client.tokenValidation.configuration.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/token_validation/config`, TokenConfigsV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete Token Configuration
+     *
+     * @example
+     * ```ts
+     * const configuration =
+     *   await client.tokenValidation.configuration.delete(
+     *     '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(configId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/token_validation/config/${configId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Edit fields of an existing Token Configuration
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.tokenValidation.configuration.edit(
+     *     '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    edit(configId, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.patch(`/zones/${zone_id}/token_validation/config/${configId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get a single Token Configuration
+     *
+     * @example
+     * ```ts
+     * const tokenConfig =
+     *   await client.tokenValidation.configuration.get(
+     *     '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(configId, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/token_validation/config/${configId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Configuration = Configuration;
+class TokenConfigsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.TokenConfigsV4PagePaginationArray = TokenConfigsV4PagePaginationArray;
+Configuration.TokenConfigsV4PagePaginationArray = TokenConfigsV4PagePaginationArray;
+Configuration.Credentials = credentials_1.Credentials;
+//# sourceMappingURL=configuration.js.map
+
+/***/ }),
+
+/***/ 15053:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Credentials = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Credentials extends resource_1.APIResource {
+    /**
+     * Update Token Configuration credentials
+     *
+     * @example
+     * ```ts
+     * const credential =
+     *   await client.tokenValidation.configuration.credentials.update(
+     *     '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *     {
+     *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       keys: [
+     *         {
+     *           alg: 'ES256',
+     *           crv: 'P-256',
+     *           kid: '38013f13-c266-4eec-a72a-92ec92779f21',
+     *           kty: 'EC',
+     *           x: 'KN53JRwN3wCjm2o39bvZUX2VdrsHzS8pxOAGjm8m7EQ',
+     *           y: 'lnkkzIxaveggz-HFhcMWW15nxvOj0Z_uQsXbpK0GFcY',
+     *         },
+     *       ],
+     *     },
+     *   );
+     * ```
+     */
+    update(configId, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/token_validation/config/${configId}/credentials`, {
+            body,
+            ...options,
+        });
+    }
+}
+exports.Credentials = Credentials;
+//# sourceMappingURL=credentials.js.map
+
+/***/ }),
+
+/***/ 54573:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TokenValidationRulesSinglePage = exports.TokenValidationRulesV4PagePaginationArray = exports.Rules = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Rules extends resource_1.APIResource {
+    /**
+     * Create a token validation rule.
+     *
+     * @example
+     * ```ts
+     * const tokenValidationRule =
+     *   await client.tokenValidation.rules.create({
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     action: 'log',
+     *     description:
+     *       'Long description for Token Validation Rule',
+     *     enabled: true,
+     *     expression:
+     *       'is_jwt_valid("52973293-cb04-4a97-8f55-e7d2ad1107dd") or is_jwt_valid("46eab8d1-6376-45e3-968f-2c649d77d423")',
+     *     selector: {},
+     *     title: 'Example Token Validation Rule',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/token_validation/rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List token validation rules
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const tokenValidationRule of client.tokenValidation.rules.list(
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { zone_id, ...query } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/token_validation/rules`, TokenValidationRulesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Delete a zone token validation rule.
+     *
+     * @example
+     * ```ts
+     * const rule = await client.tokenValidation.rules.delete(
+     *   '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(ruleId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/token_validation/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Create zone token validation rules.
+     *
+     * A request can create multiple Token Validation Rules.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const tokenValidationRule of client.tokenValidation.rules.bulkCreate(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     body: [
+     *       {
+     *         action: 'log',
+     *         description:
+     *           'Long description for Token Validation Rule',
+     *         enabled: true,
+     *         expression:
+     *           'is_jwt_valid("52973293-cb04-4a97-8f55-e7d2ad1107dd") or is_jwt_valid("46eab8d1-6376-45e3-968f-2c649d77d423")',
+     *         selector: {},
+     *         title: 'Example Token Validation Rule',
+     *       },
+     *     ],
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkCreate(params, options) {
+        const { zone_id, body } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/token_validation/rules/bulk`, TokenValidationRulesSinglePage, { body: body, method: 'post', ...options });
+    }
+    /**
+     * Edit token validation rules.
+     *
+     * A request can update multiple Token Validation Rules.
+     *
+     * Rules can be re-ordered using the `position` field.
+     *
+     * Returns all updated rules.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const tokenValidationRule of client.tokenValidation.rules.bulkEdit(
+     *   {
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     body: [{ id: '0d9bf70c-92e1-4bb3-9411-34a3bcc59003' }],
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    bulkEdit(params, options) {
+        const { zone_id, body } = params;
+        return this._client.getAPIList(`/zones/${zone_id}/token_validation/rules/bulk`, TokenValidationRulesSinglePage, { body: body, method: 'patch', ...options });
+    }
+    /**
+     * Edit a zone token validation rule.
+     *
+     * @example
+     * ```ts
+     * const tokenValidationRule =
+     *   await client.tokenValidation.rules.edit(
+     *     '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    edit(ruleId, params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.patch(`/zones/${zone_id}/token_validation/rules/${ruleId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get a zone token validation rule.
+     *
+     * @example
+     * ```ts
+     * const tokenValidationRule =
+     *   await client.tokenValidation.rules.get(
+     *     '4a7ee8d3-dd63-4ceb-9d5f-c27831854ce7',
+     *     { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(ruleId, params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/token_validation/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Rules = Rules;
+class TokenValidationRulesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.TokenValidationRulesV4PagePaginationArray = TokenValidationRulesV4PagePaginationArray;
+class TokenValidationRulesSinglePage extends pagination_1.SinglePage {
+}
+exports.TokenValidationRulesSinglePage = TokenValidationRulesSinglePage;
+Rules.TokenValidationRulesV4PagePaginationArray = TokenValidationRulesV4PagePaginationArray;
+Rules.TokenValidationRulesSinglePage = TokenValidationRulesSinglePage;
+//# sourceMappingURL=rules.js.map
+
+/***/ }),
+
+/***/ 31103:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TokenValidation = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const RulesAPI = __importStar(__nccwpck_require__(54573));
+const rules_1 = __nccwpck_require__(54573);
+const ConfigurationAPI = __importStar(__nccwpck_require__(39409));
+const configuration_1 = __nccwpck_require__(39409);
+class TokenValidation extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.configuration = new ConfigurationAPI.Configuration(this._client);
+        this.rules = new RulesAPI.Rules(this._client);
+    }
+}
+exports.TokenValidation = TokenValidation;
+TokenValidation.Configuration = configuration_1.Configuration;
+TokenValidation.TokenConfigsV4PagePaginationArray = configuration_1.TokenConfigsV4PagePaginationArray;
+TokenValidation.Rules = rules_1.Rules;
+TokenValidation.TokenValidationRulesV4PagePaginationArray = rules_1.TokenValidationRulesV4PagePaginationArray;
+TokenValidation.TokenValidationRulesSinglePage = rules_1.TokenValidationRulesSinglePage;
+//# sourceMappingURL=token-validation.js.map
 
 /***/ }),
 
@@ -73326,9 +82127,9 @@ class Widgets extends resource_1.APIResource {
      * ```
      */
     create(params, options) {
-        const { account_id, direction, order, page, per_page, ...body } = params;
+        const { account_id, direction, filter, order, page, per_page, ...body } = params;
         return this._client.post(`/accounts/${account_id}/challenges/widgets`, {
-            query: { direction, order, page, per_page },
+            query: { direction, filter, order, page, per_page },
             body,
             ...options,
         })._thenUnwrap((obj) => obj.result);
@@ -73438,7 +82239,21 @@ Widgets.WidgetListResponsesV4PagePaginationArray = WidgetListResponsesV4PagePagi
 
 /***/ }),
 
-/***/ 605:
+/***/ 25478:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.URLNormalization = void 0;
+var url_normalization_1 = __nccwpck_require__(70615);
+Object.defineProperty(exports, "URLNormalization", ({ enumerable: true, get: function () { return url_normalization_1.URLNormalization; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 70615:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -74706,6 +83521,587 @@ Vectorize.CreateIndicesSinglePage = indexes_1.CreateIndicesSinglePage;
 
 /***/ }),
 
+/***/ 64549:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CredentialSetListResponsesV4PagePaginationArray = exports.CredentialSets = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const CredentialsAPI = __importStar(__nccwpck_require__(54450));
+const credentials_1 = __nccwpck_require__(54450);
+const pagination_1 = __nccwpck_require__(30404);
+class CredentialSets extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.credentials = new CredentialsAPI.Credentials(this._client);
+    }
+    /**
+     * Creates a new credential set.
+     *
+     * @example
+     * ```ts
+     * const credentialSet =
+     *   await client.vulnerabilityScanner.credentialSets.create({
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     name: 'Production API credentials',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/vuln_scanner/credential_sets`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Replaces a credential set. All fields must be provided.
+     *
+     * @example
+     * ```ts
+     * const credentialSet =
+     *   await client.vulnerabilityScanner.credentialSets.update(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       name: 'Production API credentials',
+     *     },
+     *   );
+     * ```
+     */
+    update(credentialSetId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns all credential sets for the account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const credentialSetListResponse of client.vulnerabilityScanner.credentialSets.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/vuln_scanner/credential_sets`, CredentialSetListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes a credential set and all of its credentials.
+     *
+     * @example
+     * ```ts
+     * const credentialSet =
+     *   await client.vulnerabilityScanner.credentialSets.delete(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(credentialSetId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a credential set with only the provided fields; omitted fields remain
+     * unchanged.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.vulnerabilityScanner.credentialSets.edit(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    edit(credentialSetId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns a single credential set by ID.
+     *
+     * @example
+     * ```ts
+     * const credentialSet =
+     *   await client.vulnerabilityScanner.credentialSets.get(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(credentialSetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.CredentialSets = CredentialSets;
+class CredentialSetListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.CredentialSetListResponsesV4PagePaginationArray = CredentialSetListResponsesV4PagePaginationArray;
+CredentialSets.CredentialSetListResponsesV4PagePaginationArray =
+    CredentialSetListResponsesV4PagePaginationArray;
+CredentialSets.Credentials = credentials_1.Credentials;
+CredentialSets.CredentialListResponsesV4PagePaginationArray = credentials_1.CredentialListResponsesV4PagePaginationArray;
+//# sourceMappingURL=credential-sets.js.map
+
+/***/ }),
+
+/***/ 54450:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CredentialListResponsesV4PagePaginationArray = exports.Credentials = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Credentials extends resource_1.APIResource {
+    /**
+     * Creates a new credential within a credential set.
+     *
+     * @example
+     * ```ts
+     * const credential =
+     *   await client.vulnerabilityScanner.credentialSets.credentials.create(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       location: 'header',
+     *       location_name: 'Authorization',
+     *       name: 'Admin API key',
+     *       value: 'Bearer EXAMPLE_TOKEN',
+     *     },
+     *   );
+     * ```
+     */
+    create(credentialSetId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}/credentials`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Replaces a credential. All fields must be provided.
+     *
+     * @example
+     * ```ts
+     * const credential =
+     *   await client.vulnerabilityScanner.credentialSets.credentials.update(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       location: 'header',
+     *       location_name: 'Authorization',
+     *       name: 'Admin API key',
+     *       value: 'Bearer EXAMPLE_TOKEN',
+     *     },
+     *   );
+     * ```
+     */
+    update(credentialSetId, credentialId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}/credentials/${credentialId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns all credentials within a credential set.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const credentialListResponse of client.vulnerabilityScanner.credentialSets.credentials.list(
+     *   '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(credentialSetId, params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}/credentials`, CredentialListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes a credential.
+     *
+     * @example
+     * ```ts
+     * const credential =
+     *   await client.vulnerabilityScanner.credentialSets.credentials.delete(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(credentialSetId, credentialId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}/credentials/${credentialId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a credential with only the provided fields; omitted fields remain
+     * unchanged.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.vulnerabilityScanner.credentialSets.credentials.edit(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    edit(credentialSetId, credentialId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}/credentials/${credentialId}`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns a single credential by ID.
+     *
+     * @example
+     * ```ts
+     * const credential =
+     *   await client.vulnerabilityScanner.credentialSets.credentials.get(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(credentialSetId, credentialId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/vuln_scanner/credential_sets/${credentialSetId}/credentials/${credentialId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Credentials = Credentials;
+class CredentialListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.CredentialListResponsesV4PagePaginationArray = CredentialListResponsesV4PagePaginationArray;
+Credentials.CredentialListResponsesV4PagePaginationArray = CredentialListResponsesV4PagePaginationArray;
+//# sourceMappingURL=credentials.js.map
+
+/***/ }),
+
+/***/ 27904:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ScanListResponsesV4PagePaginationArray = exports.Scans = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Scans extends resource_1.APIResource {
+    /**
+     * Creates and starts a new vulnerability scan. The response may include non-fatal
+     * warnings in the `messages` array.
+     *
+     * @example
+     * ```ts
+     * const scan = await client.vulnerabilityScanner.scans.create(
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     credential_sets: {
+     *       attacker: '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *       owner: '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     },
+     *     open_api: 'open_api',
+     *     scan_type: 'bola',
+     *     target_environment_id:
+     *       '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *   },
+     * );
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/vuln_scanner/scans`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns all scans for the account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const scanListResponse of client.vulnerabilityScanner.scans.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/vuln_scanner/scans`, ScanListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Returns a single scan by ID.
+     *
+     * @example
+     * ```ts
+     * const scan = await client.vulnerabilityScanner.scans.get(
+     *   '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(scanId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/vuln_scanner/scans/${scanId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Scans = Scans;
+class ScanListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.ScanListResponsesV4PagePaginationArray = ScanListResponsesV4PagePaginationArray;
+Scans.ScanListResponsesV4PagePaginationArray = ScanListResponsesV4PagePaginationArray;
+//# sourceMappingURL=scans.js.map
+
+/***/ }),
+
+/***/ 84204:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TargetEnvironmentListResponsesV4PagePaginationArray = exports.TargetEnvironments = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class TargetEnvironments extends resource_1.APIResource {
+    /**
+     * Creates a new target environment for the account.
+     *
+     * @example
+     * ```ts
+     * const targetEnvironment =
+     *   await client.vulnerabilityScanner.targetEnvironments.create(
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       name: 'Production Zone',
+     *       target: {
+     *         type: 'zone',
+     *         zone_tag: 'd8e8fca2dc0f896fd7cb4cb0031ba249',
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/vuln_scanner/target_environments`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Replaces a target environment. All fields must be provided.
+     *
+     * @example
+     * ```ts
+     * const targetEnvironment =
+     *   await client.vulnerabilityScanner.targetEnvironments.update(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     {
+     *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *       name: 'Production Zone',
+     *       target: {
+     *         type: 'zone',
+     *         zone_tag: 'd8e8fca2dc0f896fd7cb4cb0031ba249',
+     *       },
+     *     },
+     *   );
+     * ```
+     */
+    update(targetEnvironmentId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/vuln_scanner/target_environments/${targetEnvironmentId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns all target environments for the account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const targetEnvironmentListResponse of client.vulnerabilityScanner.targetEnvironments.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/vuln_scanner/target_environments`, TargetEnvironmentListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Removes a target environment.
+     *
+     * @example
+     * ```ts
+     * const targetEnvironment =
+     *   await client.vulnerabilityScanner.targetEnvironments.delete(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    delete(targetEnvironmentId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/vuln_scanner/target_environments/${targetEnvironmentId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a target environment with only the provided fields; omitted fields
+     * remain unchanged.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.vulnerabilityScanner.targetEnvironments.edit(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    edit(targetEnvironmentId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/vuln_scanner/target_environments/${targetEnvironmentId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Returns a single target environment by ID.
+     *
+     * @example
+     * ```ts
+     * const targetEnvironment =
+     *   await client.vulnerabilityScanner.targetEnvironments.get(
+     *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(targetEnvironmentId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/vuln_scanner/target_environments/${targetEnvironmentId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.TargetEnvironments = TargetEnvironments;
+class TargetEnvironmentListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.TargetEnvironmentListResponsesV4PagePaginationArray = TargetEnvironmentListResponsesV4PagePaginationArray;
+TargetEnvironments.TargetEnvironmentListResponsesV4PagePaginationArray =
+    TargetEnvironmentListResponsesV4PagePaginationArray;
+//# sourceMappingURL=target-environments.js.map
+
+/***/ }),
+
+/***/ 5255:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.VulnerabilityScanner = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const ScansAPI = __importStar(__nccwpck_require__(27904));
+const scans_1 = __nccwpck_require__(27904);
+const TargetEnvironmentsAPI = __importStar(__nccwpck_require__(84204));
+const target_environments_1 = __nccwpck_require__(84204);
+const CredentialSetsAPI = __importStar(__nccwpck_require__(64549));
+const credential_sets_1 = __nccwpck_require__(64549);
+class VulnerabilityScanner extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.credentialSets = new CredentialSetsAPI.CredentialSets(this._client);
+        this.scans = new ScansAPI.Scans(this._client);
+        this.targetEnvironments = new TargetEnvironmentsAPI.TargetEnvironments(this._client);
+    }
+}
+exports.VulnerabilityScanner = VulnerabilityScanner;
+VulnerabilityScanner.CredentialSets = credential_sets_1.CredentialSets;
+VulnerabilityScanner.CredentialSetListResponsesV4PagePaginationArray =
+    credential_sets_1.CredentialSetListResponsesV4PagePaginationArray;
+VulnerabilityScanner.Scans = scans_1.Scans;
+VulnerabilityScanner.ScanListResponsesV4PagePaginationArray = scans_1.ScanListResponsesV4PagePaginationArray;
+VulnerabilityScanner.TargetEnvironments = target_environments_1.TargetEnvironments;
+VulnerabilityScanner.TargetEnvironmentListResponsesV4PagePaginationArray =
+    target_environments_1.TargetEnvironmentListResponsesV4PagePaginationArray;
+//# sourceMappingURL=vulnerability-scanner.js.map
+
+/***/ }),
+
 /***/ 13029:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -75127,7 +84523,8 @@ exports.Settings = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Settings extends resource_1.APIResource {
     /**
-     * Update zone-level Waiting Room settings
+     * Fully updates zone-level Waiting Room settings, replacing the existing
+     * configuration.
      *
      * @example
      * ```ts
@@ -75141,7 +84538,7 @@ class Settings extends resource_1.APIResource {
         return this._client.put(`/zones/${zone_id}/waiting_rooms/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Patch zone-level Waiting Room settings
+     * Partially updates zone-level Waiting Room settings using PATCH semantics.
      *
      * @example
      * ```ts
@@ -75158,7 +84555,8 @@ class Settings extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get zone-level Waiting Room settings
+     * Gets the zone-level Waiting Room settings that apply as defaults to all waiting
+     * rooms on the zone.
      *
      * @example
      * ```ts
@@ -76244,8 +85642,9 @@ class Scripts extends resource_1.APIResource {
      * ```
      */
     update(dispatchNamespace, scriptName, params, options) {
-        const { account_id, ...body } = params;
+        const { account_id, bindings_inherit, ...body } = params;
         return this._client.put(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}`, Core.maybeMultipartFormRequestOptions({
+            query: { bindings_inherit },
             body,
             ...options,
             __multipartSyntax: 'json',
@@ -77041,7 +86440,6 @@ class Workers extends resource_1.APIResource {
         return this._client.patch(`/accounts/${account_id}/workers/workers/${workerId}`, {
             body,
             ...options,
-            headers: { 'Content-Type': 'application/merge-patch+json', ...options?.headers },
         })._thenUnwrap((obj) => obj.result);
     }
     /**
@@ -77078,21 +86476,19 @@ Workers.VersionsV4PagePaginationArray = versions_1.VersionsV4PagePaginationArray
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DomainsSinglePage = exports.Domains = void 0;
+exports.DomainListResponsesSinglePage = exports.Domains = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Domains extends resource_1.APIResource {
     /**
-     * Attaches a Worker to a zone and hostname.
+     * Attaches a domain that routes traffic to a Worker.
      *
      * @example
      * ```ts
      * const domain = await client.workers.domains.update({
-     *   account_id: '9a7806061c88ada191ed06f989cc3dac',
-     *   environment: 'production',
-     *   hostname: 'foo.example.com',
-     *   service: 'foo',
-     *   zone_id: '593c9c94de529bbbfaac7c53ced0447d',
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   hostname: 'app.example.com',
+     *   service: 'my-worker',
      * });
      * ```
      */
@@ -77101,51 +86497,49 @@ class Domains extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/workers/domains`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Lists all Worker Domains for an account.
+     * Lists all domains for an account.
      *
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const domain of client.workers.domains.list({
-     *   account_id: '9a7806061c88ada191ed06f989cc3dac',
-     * })) {
+     * for await (const domainListResponse of client.workers.domains.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
      *   // ...
      * }
      * ```
      */
     list(params, options) {
         const { account_id, ...query } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/workers/domains`, DomainsSinglePage, {
+        return this._client.getAPIList(`/accounts/${account_id}/workers/domains`, DomainListResponsesSinglePage, {
             query,
             ...options,
         });
     }
     /**
-     * Detaches a Worker from a zone and hostname.
+     * Detaches a domain from a Worker. Both the Worker and all of its previews are no
+     * longer routable using this domain.
      *
      * @example
      * ```ts
-     * await client.workers.domains.delete(
+     * const domain = await client.workers.domains.delete(
      *   'dbe10b4bc17c295377eabd600e1787fd',
-     *   { account_id: '9a7806061c88ada191ed06f989cc3dac' },
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
      */
     delete(domainId, params, options) {
         const { account_id } = params;
-        return this._client.delete(`/accounts/${account_id}/workers/domains/${domainId}`, {
-            ...options,
-            headers: { Accept: '*/*', ...options?.headers },
-        });
+        return this._client.delete(`/accounts/${account_id}/workers/domains/${domainId}`, options);
     }
     /**
-     * Gets a Worker domain.
+     * Gets information about a domain.
      *
      * @example
      * ```ts
      * const domain = await client.workers.domains.get(
      *   'dbe10b4bc17c295377eabd600e1787fd',
-     *   { account_id: '9a7806061c88ada191ed06f989cc3dac' },
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
      * );
      * ```
      */
@@ -77155,11 +86549,118 @@ class Domains extends resource_1.APIResource {
     }
 }
 exports.Domains = Domains;
-class DomainsSinglePage extends pagination_1.SinglePage {
+class DomainListResponsesSinglePage extends pagination_1.SinglePage {
 }
-exports.DomainsSinglePage = DomainsSinglePage;
-Domains.DomainsSinglePage = DomainsSinglePage;
+exports.DomainListResponsesSinglePage = DomainListResponsesSinglePage;
+Domains.DomainListResponsesSinglePage = DomainListResponsesSinglePage;
 //# sourceMappingURL=domains.js.map
+
+/***/ }),
+
+/***/ 89993:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DestinationListResponsesSinglePage = exports.Destinations = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Destinations extends resource_1.APIResource {
+    /**
+     * Create a new Workers Observability Telemetry Destination.
+     *
+     * @example
+     * ```ts
+     * const destination =
+     *   await client.workers.observability.destinations.create({
+     *     account_id: 'account_id',
+     *     configuration: {
+     *       headers: { foo: 'string' },
+     *       logpushDataset: 'opentelemetry-traces',
+     *       type: 'logpush',
+     *       url: 'url',
+     *     },
+     *     enabled: true,
+     *     name: 'name',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/workers/observability/destinations`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update an existing Workers Observability Telemetry Destination.
+     *
+     * @example
+     * ```ts
+     * const destination =
+     *   await client.workers.observability.destinations.update(
+     *     'slug',
+     *     {
+     *       account_id: 'account_id',
+     *       configuration: {
+     *         headers: { foo: 'string' },
+     *         type: 'logpush',
+     *         url: 'url',
+     *       },
+     *       enabled: true,
+     *     },
+     *   );
+     * ```
+     */
+    update(slug, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/workers/observability/destinations/${slug}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List your Workers Observability Telemetry Destinations.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const destinationListResponse of client.workers.observability.destinations.list(
+     *   { account_id: 'account_id' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/workers/observability/destinations`, DestinationListResponsesSinglePage, { query, ...options });
+    }
+    /**
+     * Delete a Workers Observability Telemetry Destination.
+     *
+     * @example
+     * ```ts
+     * const destination =
+     *   await client.workers.observability.destinations.delete(
+     *     'slug',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    delete(slug, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/workers/observability/destinations/${slug}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Destinations = Destinations;
+class DestinationListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.DestinationListResponsesSinglePage = DestinationListResponsesSinglePage;
+Destinations.DestinationListResponsesSinglePage = DestinationListResponsesSinglePage;
+//# sourceMappingURL=destinations.js.map
 
 /***/ }),
 
@@ -77195,18 +86696,23 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Observability = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const DestinationsAPI = __importStar(__nccwpck_require__(89993));
+const destinations_1 = __nccwpck_require__(89993);
 const TelemetryAPI = __importStar(__nccwpck_require__(59929));
 const telemetry_1 = __nccwpck_require__(59929);
 class Observability extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.telemetry = new TelemetryAPI.Telemetry(this._client);
+        this.destinations = new DestinationsAPI.Destinations(this._client);
     }
 }
 exports.Observability = Observability;
 Observability.Telemetry = telemetry_1.Telemetry;
 Observability.TelemetryKeysResponsesSinglePage = telemetry_1.TelemetryKeysResponsesSinglePage;
 Observability.TelemetryValuesResponsesSinglePage = telemetry_1.TelemetryValuesResponsesSinglePage;
+Observability.Destinations = destinations_1.Destinations;
+Observability.DestinationListResponsesSinglePage = destinations_1.DestinationListResponsesSinglePage;
 //# sourceMappingURL=observability.js.map
 
 /***/ }),
@@ -77240,7 +86746,7 @@ class Telemetry extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/workers/observability/telemetry/keys`, TelemetryKeysResponsesSinglePage, { body, method: 'post', ...options });
     }
     /**
-     * Runs a temporary or saved query
+     * Run a temporary or saved query.
      *
      * @example
      * ```ts
@@ -77260,7 +86766,7 @@ class Telemetry extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List unique values found in your events
+     * List unique values found in your events.
      *
      * @example
      * ```ts
@@ -77833,7 +87339,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ScriptsSinglePage = exports.Scripts = void 0;
+exports.ScriptListResponsesSinglePage = exports.Scripts = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const Core = __importStar(__nccwpck_require__(75487));
 const ContentAPI = __importStar(__nccwpck_require__(63706));
@@ -77888,8 +87394,9 @@ class Scripts extends resource_1.APIResource {
      * ```
      */
     update(scriptName, params, options) {
-        const { account_id, ...body } = params;
+        const { account_id, bindings_inherit, ...body } = params;
         return this._client.put(`/accounts/${account_id}/workers/scripts/${scriptName}`, Core.maybeMultipartFormRequestOptions({
+            query: { bindings_inherit },
             body,
             ...options,
             __multipartSyntax: 'json',
@@ -77902,16 +87409,16 @@ class Scripts extends resource_1.APIResource {
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const script of client.workers.scripts.list({
-     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     * })) {
+     * for await (const scriptListResponse of client.workers.scripts.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
      *   // ...
      * }
      * ```
      */
     list(params, options) {
         const { account_id, ...query } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/workers/scripts`, ScriptsSinglePage, {
+        return this._client.getAPIList(`/accounts/${account_id}/workers/scripts`, ScriptListResponsesSinglePage, {
             query,
             ...options,
         });
@@ -77972,10 +87479,10 @@ class Scripts extends resource_1.APIResource {
     }
 }
 exports.Scripts = Scripts;
-class ScriptsSinglePage extends pagination_1.SinglePage {
+class ScriptListResponsesSinglePage extends pagination_1.SinglePage {
 }
-exports.ScriptsSinglePage = ScriptsSinglePage;
-Scripts.ScriptsSinglePage = ScriptsSinglePage;
+exports.ScriptListResponsesSinglePage = ScriptListResponsesSinglePage;
+Scripts.ScriptListResponsesSinglePage = ScriptListResponsesSinglePage;
 Scripts.Assets = assets_1.Assets;
 Scripts.Subdomain = subdomain_1.Subdomain;
 Scripts.Schedules = schedules_1.Schedules;
@@ -78338,8 +87845,13 @@ class Versions extends resource_1.APIResource {
      * ```
      */
     create(scriptName, params, options) {
-        const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/workers/scripts/${scriptName}/versions`, Core.multipartFormRequestOptions({ body, ...options, __multipartSyntax: 'json' }))._thenUnwrap((obj) => obj.result);
+        const { account_id, bindings_inherit, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/workers/scripts/${scriptName}/versions`, Core.multipartFormRequestOptions({
+            query: { bindings_inherit },
+            body,
+            ...options,
+            __multipartSyntax: 'json',
+        }))._thenUnwrap((obj) => obj.result);
     }
     /**
      * List of Worker Versions. The first version in the list is the latest version.
@@ -78360,7 +87872,7 @@ class Versions extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/workers/scripts/${scriptName}/versions`, VersionListResponsesV4PagePagination, { query, ...options });
     }
     /**
-     * Get Version Detail
+     * Retrieves detailed information about a specific version of a Workers script.
      *
      * @example
      * ```ts
@@ -78409,6 +87921,23 @@ class Subdomains extends resource_1.APIResource {
     update(params, options) {
         const { account_id, ...body } = params;
         return this._client.put(`/accounts/${account_id}/workers/subdomain`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Deletes a Workers subdomain for an account.
+     *
+     * @example
+     * ```ts
+     * await client.workers.subdomains.delete({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     * });
+     * ```
+     */
+    delete(params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/workers/subdomain`, {
+            ...options,
+            headers: { Accept: '*/*', ...options?.headers },
+        });
     }
     /**
      * Returns a Workers subdomain for an account.
@@ -78497,10 +88026,10 @@ Workers.Routes = routes_1.Routes;
 Workers.RouteListResponsesSinglePage = routes_1.RouteListResponsesSinglePage;
 Workers.Assets = assets_1.Assets;
 Workers.Scripts = scripts_1.Scripts;
-Workers.ScriptsSinglePage = scripts_1.ScriptsSinglePage;
+Workers.ScriptListResponsesSinglePage = scripts_1.ScriptListResponsesSinglePage;
 Workers.AccountSettings = account_settings_1.AccountSettings;
 Workers.Domains = domains_1.Domains;
-Workers.DomainsSinglePage = domains_1.DomainsSinglePage;
+Workers.DomainListResponsesSinglePage = domains_1.DomainListResponsesSinglePage;
 Workers.Subdomains = subdomains_1.Subdomains;
 Workers.Observability = observability_1.Observability;
 //# sourceMappingURL=workers.js.map
@@ -78518,7 +88047,7 @@ exports.Events = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Events extends resource_1.APIResource {
     /**
-     * Send event to instance
+     * Sends an event to a running workflow instance to trigger state transitions.
      */
     create(workflowName, instanceId, eventType, params, options) {
         const { account_id, body } = params ?? {};
@@ -78574,7 +88103,7 @@ class Instances extends resource_1.APIResource {
         this.events = new EventsAPI.Events(this._client);
     }
     /**
-     * Create a new workflow instance
+     * Creates a new instance of a workflow, starting its execution.
      */
     create(workflowName, params, options) {
         const { account_id, ...body } = params;
@@ -78584,25 +88113,28 @@ class Instances extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List of workflow instances
+     * Lists all instances of a workflow with their execution status.
      */
     list(workflowName, params, options) {
         const { account_id, ...query } = params;
         return this._client.getAPIList(`/accounts/${account_id}/workflows/${workflowName}/instances`, InstanceListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Batch create new Workflow instances
+     * Creates multiple workflow instances in a single batch operation.
      */
     bulk(workflowName, params, options) {
         const { account_id, body } = params ?? {};
         return this._client.getAPIList(`/accounts/${account_id}/workflows/${workflowName}/instances/batch`, InstanceBulkResponsesSinglePage, { body: body, method: 'post', ...options });
     }
     /**
-     * Get logs and status from instance
+     * Retrieves logs and execution status for a specific workflow instance.
      */
     get(workflowName, instanceId, params, options) {
-        const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/workflows/${workflowName}/instances/${instanceId}`, options)._thenUnwrap((obj) => obj.result);
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/workflows/${workflowName}/instances/${instanceId}`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Instances = Instances;
@@ -78631,7 +88163,8 @@ exports.Status = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Status extends resource_1.APIResource {
     /**
-     * Change status of instance
+     * Changes the execution status of a workflow instance (e.g., pause, resume,
+     * terminate).
      */
     edit(workflowName, instanceId, params, options) {
         const { account_id, ...body } = params;
@@ -78658,14 +88191,14 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Versions extends resource_1.APIResource {
     /**
-     * List deployed Workflow versions
+     * Lists all deployed versions of a workflow.
      */
     list(workflowName, params, options) {
         const { account_id, ...query } = params;
         return this._client.getAPIList(`/accounts/${account_id}/workflows/${workflowName}/versions`, VersionListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
-     * Get Workflow version details
+     * Retrieves details for a specific deployed workflow version.
      */
     get(workflowName, versionId, params, options) {
         const { account_id } = params;
@@ -78681,7 +88214,7 @@ Versions.VersionListResponsesV4PagePaginationArray = VersionListResponsesV4PageP
 
 /***/ }),
 
-/***/ 39595:
+/***/ 61976:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -78725,7 +88258,7 @@ class Workflows extends resource_1.APIResource {
         this.versions = new VersionsAPI.Versions(this._client);
     }
     /**
-     * Create/modify Workflow
+     * Creates a new workflow or updates an existing workflow definition.
      */
     update(workflowName, params, options) {
         const { account_id, ...body } = params;
@@ -78735,7 +88268,7 @@ class Workflows extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List all Workflows
+     * Lists all workflows configured for the account.
      */
     list(params, options) {
         const { account_id, ...query } = params;
@@ -78750,7 +88283,7 @@ class Workflows extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/workflows/${workflowName}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get Workflow details
+     * Retrieves configuration and metadata for a specific workflow.
      */
     get(workflowName, params, options) {
         const { account_id } = params;
@@ -79207,6 +88740,8 @@ const ServiceTokensAPI = __importStar(__nccwpck_require__(81555));
 const service_tokens_1 = __nccwpck_require__(81555);
 const TagsAPI = __importStar(__nccwpck_require__(55194));
 const tags_1 = __nccwpck_require__(55194);
+const AIControlsAPI = __importStar(__nccwpck_require__(66452));
+const ai_controls_1 = __nccwpck_require__(66452);
 const ApplicationsAPI = __importStar(__nccwpck_require__(84004));
 const applications_1 = __nccwpck_require__(84004);
 const CertificatesAPI = __importStar(__nccwpck_require__(63566));
@@ -79220,6 +88755,7 @@ const users_1 = __nccwpck_require__(27464);
 class Access extends resource_1.APIResource {
     constructor() {
         super(...arguments);
+        this.aiControls = new AIControlsAPI.AIControls(this._client);
         this.gatewayCA = new GatewayCAAPI.GatewayCA(this._client);
         this.infrastructure = new InfrastructureAPI.Infrastructure(this._client);
         this.applications = new ApplicationsAPI.Applications(this._client);
@@ -79236,6 +88772,7 @@ class Access extends resource_1.APIResource {
     }
 }
 exports.Access = Access;
+Access.AIControls = ai_controls_1.AIControls;
 Access.GatewayCA = gateway_ca_1.GatewayCA;
 Access.GatewayCAListResponsesSinglePage = gateway_ca_1.GatewayCAListResponsesSinglePage;
 Access.Infrastructure = infrastructure_1.Infrastructure;
@@ -79260,6 +88797,345 @@ Access.TagsV4PagePaginationArray = tags_1.TagsV4PagePaginationArray;
 Access.Policies = policies_1.Policies;
 Access.PolicyListResponsesV4PagePaginationArray = policies_1.PolicyListResponsesV4PagePaginationArray;
 //# sourceMappingURL=access.js.map
+
+/***/ }),
+
+/***/ 66452:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AIControls = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const McpAPI = __importStar(__nccwpck_require__(37224));
+const mcp_1 = __nccwpck_require__(37224);
+class AIControls extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.mcp = new McpAPI.Mcp(this._client);
+    }
+}
+exports.AIControls = AIControls;
+AIControls.Mcp = mcp_1.Mcp;
+//# sourceMappingURL=ai-controls.js.map
+
+/***/ }),
+
+/***/ 37224:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Mcp = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const PortalsAPI = __importStar(__nccwpck_require__(62199));
+const portals_1 = __nccwpck_require__(62199);
+const ServersAPI = __importStar(__nccwpck_require__(37544));
+const servers_1 = __nccwpck_require__(37544);
+class Mcp extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.portals = new PortalsAPI.Portals(this._client);
+        this.servers = new ServersAPI.Servers(this._client);
+    }
+}
+exports.Mcp = Mcp;
+Mcp.Portals = portals_1.Portals;
+Mcp.PortalListResponsesV4PagePaginationArray = portals_1.PortalListResponsesV4PagePaginationArray;
+Mcp.Servers = servers_1.Servers;
+Mcp.ServerListResponsesV4PagePaginationArray = servers_1.ServerListResponsesV4PagePaginationArray;
+//# sourceMappingURL=mcp.js.map
+
+/***/ }),
+
+/***/ 62199:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PortalListResponsesV4PagePaginationArray = exports.Portals = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Portals extends resource_1.APIResource {
+    /**
+     * Creates a new MCP portal for managing AI tool access through Cloudflare Access.
+     *
+     * @example
+     * ```ts
+     * const portal =
+     *   await client.zeroTrust.access.aiControls.mcp.portals.create(
+     *     {
+     *       account_id: 'a86a8f5c339544d7bdc89926de14fb8c',
+     *       id: 'my-mcp-portal',
+     *       hostname: 'exmaple.com',
+     *       name: 'My MCP Portal',
+     *     },
+     *   );
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/access/ai-controls/mcp/portals`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates an MCP portal configuration.
+     *
+     * @example
+     * ```ts
+     * const portal =
+     *   await client.zeroTrust.access.aiControls.mcp.portals.update(
+     *     'my-mcp-portal',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    update(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/access/ai-controls/mcp/portals/${id}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all MCP portals configured for the account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const portalListResponse of client.zeroTrust.access.aiControls.mcp.portals.list(
+     *   { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/access/ai-controls/mcp/portals`, PortalListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes an MCP portal from the account.
+     *
+     * @example
+     * ```ts
+     * const portal =
+     *   await client.zeroTrust.access.aiControls.mcp.portals.delete(
+     *     'my-mcp-portal',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    delete(id, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/access/ai-controls/mcp/portals/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Read details of an MCP Portal
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.zeroTrust.access.aiControls.mcp.portals.read(
+     *     'my-mcp-portal',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    read(id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/access/ai-controls/mcp/portals/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Portals = Portals;
+class PortalListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.PortalListResponsesV4PagePaginationArray = PortalListResponsesV4PagePaginationArray;
+Portals.PortalListResponsesV4PagePaginationArray = PortalListResponsesV4PagePaginationArray;
+//# sourceMappingURL=portals.js.map
+
+/***/ }),
+
+/***/ 37544:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ServerListResponsesV4PagePaginationArray = exports.Servers = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Servers extends resource_1.APIResource {
+    /**
+     * Creates a new MCP portal for managing AI tool access through Cloudflare Access.
+     *
+     * @example
+     * ```ts
+     * const server =
+     *   await client.zeroTrust.access.aiControls.mcp.servers.create(
+     *     {
+     *       account_id: 'a86a8f5c339544d7bdc89926de14fb8c',
+     *       id: 'my-mcp-server',
+     *       auth_type: 'unauthenticated',
+     *       hostname: 'https://example.com/mcp',
+     *       name: 'My MCP Server',
+     *     },
+     *   );
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/access/ai-controls/mcp/servers`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates an MCP portal configuration.
+     *
+     * @example
+     * ```ts
+     * const server =
+     *   await client.zeroTrust.access.aiControls.mcp.servers.update(
+     *     'my-mcp-server',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    update(id, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/access/ai-controls/mcp/servers/${id}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all MCP portals configured for the account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const serverListResponse of client.zeroTrust.access.aiControls.mcp.servers.list(
+     *   { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/access/ai-controls/mcp/servers`, ServerListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes an MCP portal from the account.
+     *
+     * @example
+     * ```ts
+     * const server =
+     *   await client.zeroTrust.access.aiControls.mcp.servers.delete(
+     *     'my-mcp-server',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    delete(id, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/access/ai-controls/mcp/servers/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves gateway configuration for MCP portals.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.zeroTrust.access.aiControls.mcp.servers.read(
+     *     'my-mcp-server',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    read(id, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/access/ai-controls/mcp/servers/${id}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Syncs an MCP server's tool catalog with the portal.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.zeroTrust.access.aiControls.mcp.servers.sync(
+     *     'my-mcp-portal',
+     *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
+     *   );
+     * ```
+     */
+    sync(id, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/access/ai-controls/mcp/servers/${id}/sync`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Servers = Servers;
+class ServerListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.ServerListResponsesV4PagePaginationArray = ServerListResponsesV4PagePaginationArray;
+Servers.ServerListResponsesV4PagePaginationArray = ServerListResponsesV4PagePaginationArray;
+//# sourceMappingURL=servers.js.map
 
 /***/ }),
 
@@ -80569,11 +90445,7 @@ class Groups extends resource_1.APIResource {
      * @example
      * ```ts
      * const group = await client.zeroTrust.access.groups.create({
-     *   include: [
-     *     {
-     *       group: { id: 'aa0a4aab-672b-4bdb-bc33-a59f1130a11f' },
-     *     },
-     *   ],
+     *   include: [{ certificate: {} }],
      *   name: 'Allow devs',
      *   account_id: 'account_id',
      * });
@@ -80609,13 +90481,7 @@ class Groups extends resource_1.APIResource {
      * const group = await client.zeroTrust.access.groups.update(
      *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *   {
-     *     include: [
-     *       {
-     *         group: {
-     *           id: 'aa0a4aab-672b-4bdb-bc33-a59f1130a11f',
-     *         },
-     *       },
-     *     ],
+     *     include: [{ certificate: {} }],
      *     name: 'Allow devs',
      *     account_id: 'account_id',
      *   },
@@ -80905,7 +90771,12 @@ class Targets extends resource_1.APIResource {
      * for await (const targetBulkUpdateResponse of client.zeroTrust.access.infrastructure.targets.bulkUpdate(
      *   {
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-     *     body: [{ hostname: 'infra-access-target', ip: {} }],
+     *     body: [
+     *       {
+     *         hostname: 'infra-access-target',
+     *         ip: {},
+     *       },
+     *     ],
      *   },
      * )) {
      *   // ...
@@ -81202,13 +91073,7 @@ class Policies extends resource_1.APIResource {
      *   await client.zeroTrust.access.policies.create({
      *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     decision: 'allow',
-     *     include: [
-     *       {
-     *         group: {
-     *           id: 'aa0a4aab-672b-4bdb-bc33-a59f1130a11f',
-     *         },
-     *       },
-     *     ],
+     *     include: [{ certificate: {} }],
      *     name: 'Allow devs',
      *   });
      * ```
@@ -81228,13 +91093,7 @@ class Policies extends resource_1.APIResource {
      *     {
      *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *       decision: 'allow',
-     *       include: [
-     *         {
-     *           group: {
-     *             id: 'aa0a4aab-672b-4bdb-bc33-a59f1130a11f',
-     *           },
-     *         },
-     *       ],
+     *       include: [{ certificate: {} }],
      *       name: 'Allow devs',
      *     },
      *   );
@@ -81779,6 +91638,44 @@ class Users extends resource_1.APIResource {
         this.failedLogins = new FailedLoginsAPI.FailedLogins(this._client);
     }
     /**
+     * Creates a new user.
+     *
+     * @example
+     * ```ts
+     * const user = await client.zeroTrust.access.users.create({
+     *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *   email: 'jdoe@example.com',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/access/users`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a specific user's name for an account. Requires the user's current email
+     * as confirmation (email cannot be changed).
+     *
+     * @example
+     * ```ts
+     * const user = await client.zeroTrust.access.users.update(
+     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *   {
+     *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+     *     email: 'jdoe@example.com',
+     *     name: 'Jane Doe',
+     *   },
+     * );
+     * ```
+     */
+    update(userId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/access/users/${userId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
      * Gets a list of users for an account.
      *
      * @example
@@ -81794,6 +91691,37 @@ class Users extends resource_1.APIResource {
     list(params, options) {
         const { account_id, ...query } = params;
         return this._client.getAPIList(`/accounts/${account_id}/access/users`, UserListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes a specific user for an account. This will also revoke any active seats
+     * and tokens for the user.
+     *
+     * @example
+     * ```ts
+     * const user = await client.zeroTrust.access.users.delete(
+     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(userId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/access/users/${userId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Gets a specific user for an account.
+     *
+     * @example
+     * ```ts
+     * const user = await client.zeroTrust.access.users.get(
+     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(userId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/access/users/${userId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Users = Users;
@@ -81900,6 +91828,8 @@ const DEXTestsAPI = __importStar(__nccwpck_require__(63629));
 const dex_tests_1 = __nccwpck_require__(63629);
 const FleetStatusAPI = __importStar(__nccwpck_require__(51987));
 const fleet_status_1 = __nccwpck_require__(51987);
+const IPProfilesAPI = __importStar(__nccwpck_require__(90762));
+const ip_profiles_1 = __nccwpck_require__(90762);
 const NetworksAPI = __importStar(__nccwpck_require__(6593));
 const networks_1 = __nccwpck_require__(6593);
 const OverrideCodesAPI = __importStar(__nccwpck_require__(92993));
@@ -81926,6 +91856,7 @@ class Devices extends resource_1.APIResource {
         this.resilience = new ResilienceAPI.Resilience(this._client);
         this.registrations = new RegistrationsAPI.Registrations(this._client);
         this.dexTests = new DEXTestsAPI.DEXTests(this._client);
+        this.ipProfiles = new IPProfilesAPI.IPProfiles(this._client);
         this.networks = new NetworksAPI.Networks(this._client);
         this.fleetStatus = new FleetStatusAPI.FleetStatus(this._client);
         this.policies = new PoliciesAPI.Policies(this._client);
@@ -81979,7 +91910,9 @@ Devices.Resilience = resilience_1.Resilience;
 Devices.Registrations = registrations_1.Registrations;
 Devices.RegistrationListResponsesCursorPagination = registrations_1.RegistrationListResponsesCursorPagination;
 Devices.DEXTests = dex_tests_1.DEXTests;
-Devices.DEXTestListResponsesSinglePage = dex_tests_1.DEXTestListResponsesSinglePage;
+Devices.DEXTestListResponsesV4PagePaginationArray = dex_tests_1.DEXTestListResponsesV4PagePaginationArray;
+Devices.IPProfiles = ip_profiles_1.IPProfiles;
+Devices.IPProfilesSinglePage = ip_profiles_1.IPProfilesSinglePage;
 Devices.Networks = networks_1.Networks;
 Devices.DeviceNetworksSinglePage = networks_1.DeviceNetworksSinglePage;
 Devices.FleetStatus = fleet_status_1.FleetStatus;
@@ -82090,7 +92023,7 @@ Devices.DeviceListResponsesCursorPagination = DeviceListResponsesCursorPaginatio
 
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DEXTestListResponsesSinglePage = exports.DEXTests = void 0;
+exports.DEXTestListResponsesV4PagePaginationArray = exports.DEXTests = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class DEXTests extends resource_1.APIResource {
@@ -82102,7 +92035,10 @@ class DEXTests extends resource_1.APIResource {
      * const dexTest =
      *   await client.zeroTrust.devices.dexTests.create({
      *     account_id: '01a7362d577a6c3019a474fd6f485823',
-     *     data: {},
+     *     data: {
+     *       host: 'https://dash.cloudflare.com',
+     *       kind: 'http',
+     *     },
      *     enabled: true,
      *     interval: '30m',
      *     name: 'HTTP dash health check',
@@ -82126,7 +92062,10 @@ class DEXTests extends resource_1.APIResource {
      *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
      *     {
      *       account_id: '01a7362d577a6c3019a474fd6f485823',
-     *       data: {},
+     *       data: {
+     *         host: 'https://dash.cloudflare.com',
+     *         kind: 'http',
+     *       },
      *       enabled: true,
      *       interval: '30m',
      *       name: 'HTTP dash health check',
@@ -82155,8 +92094,8 @@ class DEXTests extends resource_1.APIResource {
      * ```
      */
     list(params, options) {
-        const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/dex/devices/dex_tests`, DEXTestListResponsesSinglePage, options);
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/dex/devices/dex_tests`, DEXTestListResponsesV4PagePaginationArray, { query, ...options });
     }
     /**
      * Delete a Device DEX test. Returns the remaining device dex tests for the
@@ -82192,10 +92131,10 @@ class DEXTests extends resource_1.APIResource {
     }
 }
 exports.DEXTests = DEXTests;
-class DEXTestListResponsesSinglePage extends pagination_1.SinglePage {
+class DEXTestListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
 }
-exports.DEXTestListResponsesSinglePage = DEXTestListResponsesSinglePage;
-DEXTests.DEXTestListResponsesSinglePage = DEXTestListResponsesSinglePage;
+exports.DEXTestListResponsesV4PagePaginationArray = DEXTestListResponsesV4PagePaginationArray;
+DEXTests.DEXTestListResponsesV4PagePaginationArray = DEXTestListResponsesV4PagePaginationArray;
 //# sourceMappingURL=dex-tests.js.map
 
 /***/ }),
@@ -82236,6 +92175,122 @@ class FleetStatus extends resource_1.APIResource {
 }
 exports.FleetStatus = FleetStatus;
 //# sourceMappingURL=fleet-status.js.map
+
+/***/ }),
+
+/***/ 90762:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.IPProfilesSinglePage = exports.IPProfiles = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class IPProfiles extends resource_1.APIResource {
+    /**
+     * Creates a WARP Device IP profile. Currently, only IPv4 Device subnets can be
+     * associated.
+     *
+     * @example
+     * ```ts
+     * const ipProfile =
+     *   await client.zeroTrust.devices.ipProfiles.create({
+     *     account_id: 'account_id',
+     *     match: 'identity.email == "test@cloudflare.com"',
+     *     name: 'IPv4 Cloudflare Source IPs',
+     *     precedence: 100,
+     *     subnet_id: 'b70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/devices/ip-profiles`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a WARP Device IP profile. Currently, only IPv4 Device subnets can be
+     * associated.
+     *
+     * @example
+     * ```ts
+     * const ipProfile =
+     *   await client.zeroTrust.devices.ipProfiles.update(
+     *     'profile_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    update(profileId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/devices/ip-profiles/${profileId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists WARP Device IP profiles.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const ipProfile of client.zeroTrust.devices.ipProfiles.list(
+     *   { account_id: 'account_id' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/devices/ip-profiles`, IPProfilesSinglePage, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Delete a WARP Device IP profile.
+     *
+     * @example
+     * ```ts
+     * const ipProfile =
+     *   await client.zeroTrust.devices.ipProfiles.delete(
+     *     'profile_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    delete(profileId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/devices/ip-profiles/${profileId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Fetches a single WARP Device IP profile.
+     *
+     * @example
+     * ```ts
+     * const ipProfile =
+     *   await client.zeroTrust.devices.ipProfiles.get(
+     *     'profile_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    get(profileId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/devices/ip-profiles/${profileId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.IPProfiles = IPProfiles;
+class IPProfilesSinglePage extends pagination_1.SinglePage {
+}
+exports.IPProfilesSinglePage = IPProfilesSinglePage;
+IPProfiles.IPProfilesSinglePage = IPProfilesSinglePage;
+//# sourceMappingURL=ip-profiles.js.map
 
 /***/ }),
 
@@ -83122,7 +93177,7 @@ class Integrations extends resource_1.APIResource {
      *       config: {
      *         api_url: 'https://as123.awmdm.com/API',
      *         auth_url:
-     *           'https://na.uemauth.vmwservices.com/connect/token',
+     *           'https://na.uemauth.workspaceone.com/connect/token',
      *         client_id: 'example client id',
      *         client_secret: 'example client secret',
      *       },
@@ -84030,6 +94085,8 @@ exports.DEX = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const ColosAPI = __importStar(__nccwpck_require__(9930));
 const colos_1 = __nccwpck_require__(9930);
+const RulesAPI = __importStar(__nccwpck_require__(38145));
+const rules_1 = __nccwpck_require__(38145);
 const TracerouteTestsAPI = __importStar(__nccwpck_require__(15586));
 const traceroute_tests_1 = __nccwpck_require__(15586);
 const WARPChangeEventsAPI = __importStar(__nccwpck_require__(85505));
@@ -84055,6 +94112,7 @@ class DEX extends resource_1.APIResource {
         this.tests = new TestsAPI.Tests(this._client);
         this.tracerouteTestResults = new TracerouteTestResultsAPI.TracerouteTestResults(this._client);
         this.tracerouteTests = new TracerouteTestsAPI.TracerouteTests(this._client);
+        this.rules = new RulesAPI.Rules(this._client);
     }
 }
 exports.DEX = DEX;
@@ -84068,6 +94126,8 @@ DEX.HTTPTests = http_tests_1.HTTPTests;
 DEX.TestsV4PagePagination = tests_1.TestsV4PagePagination;
 DEX.TracerouteTestResults = traceroute_test_results_1.TracerouteTestResults;
 DEX.TracerouteTests = traceroute_tests_1.TracerouteTests;
+DEX.Rules = rules_1.Rules;
+DEX.RuleListResponsesV4PagePagination = rules_1.RuleListResponsesV4PagePagination;
 //# sourceMappingURL=dex.js.map
 
 /***/ }),
@@ -84179,11 +94239,12 @@ class FleetStatus extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * await client.zeroTrust.dex.fleetStatus.overTime({
-     *   account_id: '01a7362d577a6c3019a474fd6f485823',
-     *   from: '2023-10-11T00:00:00Z',
-     *   to: '2023-10-11T00:00:00Z',
-     * });
+     * const response =
+     *   await client.zeroTrust.dex.fleetStatus.overTime({
+     *     account_id: '01a7362d577a6c3019a474fd6f485823',
+     *     from: '2023-10-11T00:00:00Z',
+     *     to: '2023-10-11T00:00:00Z',
+     *   });
      * ```
      */
     overTime(params, options) {
@@ -84191,8 +94252,7 @@ class FleetStatus extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/dex/fleet-status/over-time`, {
             query,
             ...options,
-            headers: { Accept: '*/*', ...options?.headers },
-        });
+        })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.FleetStatus = FleetStatus;
@@ -84310,6 +94370,115 @@ class Percentiles extends resource_1.APIResource {
 }
 exports.Percentiles = Percentiles;
 //# sourceMappingURL=percentiles.js.map
+
+/***/ }),
+
+/***/ 38145:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RuleListResponsesV4PagePagination = exports.Rules = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Rules extends resource_1.APIResource {
+    /**
+     * Create a DEX Rule
+     *
+     * @example
+     * ```ts
+     * const rule = await client.zeroTrust.dex.rules.create({
+     *   account_id: '01a7362d577a6c3019a474fd6f485823',
+     *   match: 'match',
+     *   name: 'name',
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/dex/rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update a DEX Rule
+     *
+     * @example
+     * ```ts
+     * const rule = await client.zeroTrust.dex.rules.update(
+     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *   { account_id: '01a7362d577a6c3019a474fd6f485823' },
+     * );
+     * ```
+     */
+    update(ruleId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/dex/rules/${ruleId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List DEX Rules
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const ruleListResponse of client.zeroTrust.dex.rules.list(
+     *   {
+     *     account_id: '01a7362d577a6c3019a474fd6f485823',
+     *     page: 1,
+     *     per_page: 1,
+     *   },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/dex/rules`, RuleListResponsesV4PagePagination, {
+            query,
+            ...options,
+        });
+    }
+    /**
+     * Delete a DEX Rule
+     *
+     * @example
+     * ```ts
+     * const rule = await client.zeroTrust.dex.rules.delete(
+     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *   { account_id: '01a7362d577a6c3019a474fd6f485823' },
+     * );
+     * ```
+     */
+    delete(ruleId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/dex/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get details for a DEX Rule
+     *
+     * @example
+     * ```ts
+     * const rule = await client.zeroTrust.dex.rules.get(
+     *   'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *   { account_id: '01a7362d577a6c3019a474fd6f485823' },
+     * );
+     * ```
+     */
+    get(ruleId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/dex/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Rules = Rules;
+class RuleListResponsesV4PagePagination extends pagination_1.V4PagePagination {
+}
+exports.RuleListResponsesV4PagePagination = RuleListResponsesV4PagePagination;
+Rules.RuleListResponsesV4PagePagination = RuleListResponsesV4PagePagination;
+//# sourceMappingURL=rules.js.map
 
 /***/ }),
 
@@ -84668,7 +94837,9 @@ class Datasets extends resource_1.APIResource {
         this.versions = new VersionsAPI.Versions(this._client);
     }
     /**
-     * Create a new dataset
+     * Creates a new DLP (Data Loss Prevention) dataset for storing custom detection
+     * patterns. Datasets can contain exact match data, word lists, or EDM (Exact Data
+     * Match) configurations.
      *
      * @example
      * ```ts
@@ -84684,7 +94855,8 @@ class Datasets extends resource_1.APIResource {
         return this._client.post(`/accounts/${account_id}/dlp/datasets`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update details about a dataset
+     * Updates the configuration of an existing DLP dataset, such as its name,
+     * description, or detection settings.
      *
      * @example
      * ```ts
@@ -84702,7 +94874,8 @@ class Datasets extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetch all datasets
+     * Lists all DLP datasets configured for the account, including custom word lists
+     * and EDM datasets.
      *
      * @example
      * ```ts
@@ -84775,7 +94948,8 @@ exports.Upload = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Upload extends resource_1.APIResource {
     /**
-     * Prepare to upload a new version of a dataset
+     * Creates a new version of a DLP dataset, allowing you to stage changes before
+     * activation. Used for single-column EDM and custom word lists.
      *
      * @example
      * ```ts
@@ -84978,6 +95152,8 @@ const PatternsAPI = __importStar(__nccwpck_require__(80188));
 const patterns_1 = __nccwpck_require__(80188);
 const PayloadLogsAPI = __importStar(__nccwpck_require__(29377));
 const payload_logs_1 = __nccwpck_require__(29377);
+const SettingsAPI = __importStar(__nccwpck_require__(30090));
+const settings_1 = __nccwpck_require__(30090);
 const DatasetsAPI = __importStar(__nccwpck_require__(7516));
 const datasets_1 = __nccwpck_require__(7516);
 const EmailAPI = __importStar(__nccwpck_require__(67840));
@@ -84992,6 +95168,7 @@ class DLP extends resource_1.APIResource {
         this.datasets = new DatasetsAPI.Datasets(this._client);
         this.patterns = new PatternsAPI.Patterns(this._client);
         this.payloadLogs = new PayloadLogsAPI.PayloadLogs(this._client);
+        this.settings = new SettingsAPI.Settings(this._client);
         this.email = new EmailAPI.Email(this._client);
         this.profiles = new ProfilesAPI.Profiles(this._client);
         this.limits = new LimitsAPI.Limits(this._client);
@@ -85003,6 +95180,7 @@ DLP.Datasets = datasets_1.Datasets;
 DLP.DatasetsSinglePage = datasets_1.DatasetsSinglePage;
 DLP.Patterns = patterns_1.Patterns;
 DLP.PayloadLogs = payload_logs_1.PayloadLogs;
+DLP.Settings = settings_1.Settings;
 DLP.Email = email_1.Email;
 DLP.Profiles = profiles_1.Profiles;
 DLP.ProfilesSinglePage = profiles_1.ProfilesSinglePage;
@@ -85024,7 +95202,8 @@ exports.AccountMapping = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class AccountMapping extends resource_1.APIResource {
     /**
-     * Create mapping
+     * Creates a mapping between a Cloudflare account and an email provider for DLP
+     * email scanning integration.
      *
      * @example
      * ```ts
@@ -85046,7 +95225,7 @@ class AccountMapping extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get mapping
+     * Retrieves the email provider mapping configuration for DLP email scanning.
      *
      * @example
      * ```ts
@@ -85129,7 +95308,8 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Rules extends resource_1.APIResource {
     /**
-     * Create email scanner rule
+     * Creates a new DLP email scanning rule that defines what content patterns to
+     * detect in email messages and what actions to take.
      *
      * @example
      * ```ts
@@ -85200,7 +95380,8 @@ class Rules extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/dlp/email/rules`, RuleListResponsesSinglePage, options);
     }
     /**
-     * Delete email scanner rule
+     * Removes a DLP email scanning rule. The rule will no longer be applied to email
+     * messages.
      *
      * @example
      * ```ts
@@ -85215,7 +95396,8 @@ class Rules extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/dlp/email/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Update email scanner rule priorities
+     * Reorders DLP email scanning rules by updating their priority values. Higher
+     * priority rules are evaluated first.
      *
      * @example
      * ```ts
@@ -85231,7 +95413,8 @@ class Rules extends resource_1.APIResource {
         return this._client.patch(`/accounts/${account_id}/dlp/email/rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get an email scanner rule
+     * Gets detailed configuration for a specific DLP email scanning rule, including
+     * detection patterns and actions.
      *
      * @example
      * ```ts
@@ -85277,7 +95460,6 @@ class Custom extends resource_1.APIResource {
      *     enabled: true,
      *     name: 'name',
      *     pattern: { regex: 'regex' },
-     *     profile_id: '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
      *   });
      * ```
      */
@@ -85424,7 +95606,6 @@ class Entries extends resource_1.APIResource {
      *   enabled: true,
      *   name: 'name',
      *   pattern: { regex: 'regex' },
-     *   profile_id: '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
      * });
      * ```
      */
@@ -85531,7 +95712,7 @@ const pagination_1 = __nccwpck_require__(30404);
 class Integration extends resource_1.APIResource {
     /**
      * Integration entries can't be created, this will update an existing integration
-     * entry This is needed for our generated terraform API
+     * entry. This is needed for our generated terraform API.
      *
      * @example
      * ```ts
@@ -85588,7 +95769,7 @@ class Integration extends resource_1.APIResource {
     }
     /**
      * This is a no-op as integration entires can't be deleted but is needed for our
-     * generated terraform API
+     * generated terraform API.
      *
      * @example
      * ```ts
@@ -85642,7 +95823,7 @@ const pagination_1 = __nccwpck_require__(30404);
 class Predefined extends resource_1.APIResource {
     /**
      * Predefined entries can't be created, this will update an existing predefined
-     * entry This is needed for our generated terraform API
+     * entry. This is needed for our generated terraform API.
      *
      * @example
      * ```ts
@@ -85699,7 +95880,7 @@ class Predefined extends resource_1.APIResource {
     }
     /**
      * This is a no-op as predefined entires can't be deleted but is needed for our
-     * generated terraform API
+     * generated terraform API.
      *
      * @example
      * ```ts
@@ -85751,7 +95932,9 @@ exports.Limits = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Limits extends resource_1.APIResource {
     /**
-     * Fetch limits associated with DLP for account
+     * Retrieves current DLP usage limits and quotas for the account, including maximum
+     * allowed counts and current usage for custom entries, dataset cells, and document
+     * fingerprints.
      *
      * @example
      * ```ts
@@ -85819,7 +96002,8 @@ exports.PayloadLogs = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class PayloadLogs extends resource_1.APIResource {
     /**
-     * Set payload log settings
+     * Enables or disables payload logging for DLP matches. When enabled, matched
+     * content is stored for review.
      *
      * @example
      * ```ts
@@ -85834,7 +96018,8 @@ class PayloadLogs extends resource_1.APIResource {
         return this._client.put(`/accounts/${account_id}/dlp/payload_log`, { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get payload log settings
+     * Gets the current payload logging configuration for DLP, showing whether matched
+     * content is being logged.
      *
      * @example
      * ```ts
@@ -85951,30 +96136,13 @@ exports.Predefined = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Predefined extends resource_1.APIResource {
     /**
-     * Creates a DLP predefined profile. Only supports enabling/disabling entries.
+     * This is similar to `update_predefined` but only returns entries that are
+     * enabled. This is needed for our terraform API Updates a DLP predefined profile.
+     * Only supports enabling/disabling entries.
      *
      * @example
      * ```ts
-     * const profile =
-     *   await client.zeroTrust.dlp.profiles.predefined.create({
-     *     account_id: 'account_id',
-     *     profile_id: '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
-     *   });
-     * ```
-     */
-    create(params, options) {
-        const { account_id, ...body } = params;
-        return this._client.post(`/accounts/${account_id}/dlp/profiles/predefined`, {
-            body,
-            ...options,
-        })._thenUnwrap((obj) => obj.result);
-    }
-    /**
-     * Updates a DLP predefined profile. Only supports enabling/disabling entries.
-     *
-     * @example
-     * ```ts
-     * const profile =
+     * const predefinedProfile =
      *   await client.zeroTrust.dlp.profiles.predefined.update(
      *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
      *     { account_id: 'account_id' },
@@ -85983,14 +96151,14 @@ class Predefined extends resource_1.APIResource {
      */
     update(profileId, params, options) {
         const { account_id, ...body } = params;
-        return this._client.put(`/accounts/${account_id}/dlp/profiles/predefined/${profileId}`, {
+        return this._client.put(`/accounts/${account_id}/dlp/profiles/predefined/${profileId}/config`, {
             body,
             ...options,
         })._thenUnwrap((obj) => obj.result);
     }
     /**
      * This is a no-op as predefined profiles can't be deleted but is needed for our
-     * generated terraform API
+     * generated terraform API.
      *
      * @example
      * ```ts
@@ -86006,11 +96174,12 @@ class Predefined extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/dlp/profiles/predefined/${profileId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Fetches a predefined DLP profile by id.
+     * This is similar to `get_predefined` but only returns entries that are enabled.
+     * This is needed for our terraform API Fetches a predefined DLP profile by id.
      *
      * @example
      * ```ts
-     * const profile =
+     * const predefinedProfile =
      *   await client.zeroTrust.dlp.profiles.predefined.get(
      *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
      *     { account_id: 'account_id' },
@@ -86019,7 +96188,7 @@ class Predefined extends resource_1.APIResource {
      */
     get(profileId, params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/dlp/profiles/predefined/${profileId}`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/dlp/profiles/predefined/${profileId}/config`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Predefined = Predefined;
@@ -86114,6 +96283,81 @@ Profiles.ProfilesSinglePage = ProfilesSinglePage;
 Profiles.Custom = custom_1.Custom;
 Profiles.Predefined = predefined_1.Predefined;
 //# sourceMappingURL=profiles.js.map
+
+/***/ }),
+
+/***/ 30090:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Settings = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Settings extends resource_1.APIResource {
+    /**
+     * Missing fields are reset to initial (unconfigured) values.
+     *
+     * @example
+     * ```ts
+     * const dlpSettings =
+     *   await client.zeroTrust.dlp.settings.update({
+     *     account_id: 'account_id',
+     *   });
+     * ```
+     */
+    update(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/dlp/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Delete (reset) DLP account-level settings to initial values.
+     *
+     * @example
+     * ```ts
+     * const dlpSettings =
+     *   await client.zeroTrust.dlp.settings.delete({
+     *     account_id: 'account_id',
+     *   });
+     * ```
+     */
+    delete(params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/dlp/settings`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Missing fields keep their existing values.
+     *
+     * @example
+     * ```ts
+     * const dlpSettings =
+     *   await client.zeroTrust.dlp.settings.edit({
+     *     account_id: 'account_id',
+     *   });
+     * ```
+     */
+    edit(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/dlp/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get DLP account-level settings.
+     *
+     * @example
+     * ```ts
+     * const dlpSettings = await client.zeroTrust.dlp.settings.get(
+     *   { account_id: 'account_id' },
+     * );
+     * ```
+     */
+    get(params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/dlp/settings`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Settings = Settings;
+//# sourceMappingURL=settings.js.map
 
 /***/ }),
 
@@ -86565,6 +96809,8 @@ const LocationsAPI = __importStar(__nccwpck_require__(70725));
 const locations_1 = __nccwpck_require__(70725);
 const LoggingAPI = __importStar(__nccwpck_require__(59564));
 const logging_1 = __nccwpck_require__(59564);
+const PacfilesAPI = __importStar(__nccwpck_require__(77370));
+const pacfiles_1 = __nccwpck_require__(77370);
 const ProxyEndpointsAPI = __importStar(__nccwpck_require__(86998));
 const proxy_endpoints_1 = __nccwpck_require__(86998);
 const RulesAPI = __importStar(__nccwpck_require__(91610));
@@ -86586,6 +96832,7 @@ class Gateway extends resource_1.APIResource {
         this.proxyEndpoints = new ProxyEndpointsAPI.ProxyEndpoints(this._client);
         this.rules = new RulesAPI.Rules(this._client);
         this.certificates = new CertificatesAPI.Certificates(this._client);
+        this.pacfiles = new PacfilesAPI.Pacfiles(this._client);
     }
     /**
      * Create a Zero Trust account for an existing Cloudflare account.
@@ -86634,6 +96881,8 @@ Gateway.Rules = rules_1.Rules;
 Gateway.GatewayRulesSinglePage = rules_1.GatewayRulesSinglePage;
 Gateway.Certificates = certificates_1.Certificates;
 Gateway.CertificateListResponsesSinglePage = certificates_1.CertificateListResponsesSinglePage;
+Gateway.Pacfiles = pacfiles_1.Pacfiles;
+Gateway.PacfileListResponsesSinglePage = pacfiles_1.PacfileListResponsesSinglePage;
 //# sourceMappingURL=gateway.js.map
 
 /***/ }),
@@ -86995,6 +97244,118 @@ exports.Logging = Logging;
 
 /***/ }),
 
+/***/ 77370:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PacfileListResponsesSinglePage = exports.Pacfiles = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Pacfiles extends resource_1.APIResource {
+    /**
+     * Create a new Zero Trust Gateway PAC file.
+     *
+     * @example
+     * ```ts
+     * const pacfile =
+     *   await client.zeroTrust.gateway.pacfiles.create({
+     *     account_id: '699d98642c564d2e855e9661899b7252',
+     *     contents:
+     *       'function FindProxyForURL(url, host) { return "DIRECT"; }',
+     *     name: 'Devops team',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/gateway/pacfiles`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Update a configured Zero Trust Gateway PAC file.
+     *
+     * @example
+     * ```ts
+     * const pacfile =
+     *   await client.zeroTrust.gateway.pacfiles.update(
+     *     'ed35569b41ce4d1facfe683550f54086',
+     *     {
+     *       account_id: '699d98642c564d2e855e9661899b7252',
+     *       contents:
+     *         'function FindProxyForURL(url, host) { return "DIRECT"; }',
+     *       description: 'PAC file for Devops team',
+     *       name: 'Devops team',
+     *     },
+     *   );
+     * ```
+     */
+    update(pacfileId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/gateway/pacfiles/${pacfileId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List all Zero Trust Gateway PAC files for an account.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const pacfileListResponse of client.zeroTrust.gateway.pacfiles.list(
+     *   { account_id: '699d98642c564d2e855e9661899b7252' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/gateway/pacfiles`, PacfileListResponsesSinglePage, options);
+    }
+    /**
+     * Delete a configured Zero Trust Gateway PAC file.
+     *
+     * @example
+     * ```ts
+     * const pacfile =
+     *   await client.zeroTrust.gateway.pacfiles.delete(
+     *     'ed35569b41ce4d1facfe683550f54086',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    delete(pacfileId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/gateway/pacfiles/${pacfileId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get a single Zero Trust Gateway PAC file.
+     *
+     * @example
+     * ```ts
+     * const pacfile = await client.zeroTrust.gateway.pacfiles.get(
+     *   'ed35569b41ce4d1facfe683550f54086',
+     *   { account_id: '699d98642c564d2e855e9661899b7252' },
+     * );
+     * ```
+     */
+    get(pacfileId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/gateway/pacfiles/${pacfileId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Pacfiles = Pacfiles;
+class PacfileListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.PacfileListResponsesSinglePage = PacfileListResponsesSinglePage;
+Pacfiles.PacfileListResponsesSinglePage = PacfileListResponsesSinglePage;
+//# sourceMappingURL=pacfiles.js.map
+
+/***/ }),
+
 /***/ 86998:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -87014,7 +97375,6 @@ class ProxyEndpoints extends resource_1.APIResource {
      * const proxyEndpoint =
      *   await client.zeroTrust.gateway.proxyEndpoints.create({
      *     account_id: '699d98642c564d2e855e9661899b7252',
-     *     ips: ['192.0.2.1/32'],
      *     name: 'Devops team',
      *   });
      * ```
@@ -87031,15 +97391,17 @@ class ProxyEndpoints extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const proxyEndpoint =
-     *   await client.zeroTrust.gateway.proxyEndpoints.list({
-     *     account_id: '699d98642c564d2e855e9661899b7252',
-     *   });
+     * // Automatically fetches more pages as needed.
+     * for await (const proxyEndpoint of client.zeroTrust.gateway.proxyEndpoints.list(
+     *   { account_id: '699d98642c564d2e855e9661899b7252' },
+     * )) {
+     *   // ...
+     * }
      * ```
      */
     list(params, options) {
         const { account_id } = params;
-        return this._client.get(`/accounts/${account_id}/gateway/proxy_endpoints`, options)._thenUnwrap((obj) => obj.result);
+        return this._client.getAPIList(`/accounts/${account_id}/gateway/proxy_endpoints`, ProxyEndpointsSinglePage, options);
     }
     /**
      * Delete a configured Zero Trust Gateway proxy endpoint.
@@ -87081,18 +97443,16 @@ class ProxyEndpoints extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * // Automatically fetches more pages as needed.
-     * for await (const proxyEndpoint of client.zeroTrust.gateway.proxyEndpoints.get(
-     *   'ed35569b41ce4d1facfe683550f54086',
-     *   { account_id: '699d98642c564d2e855e9661899b7252' },
-     * )) {
-     *   // ...
-     * }
+     * const proxyEndpoint =
+     *   await client.zeroTrust.gateway.proxyEndpoints.get(
+     *     'ed35569b41ce4d1facfe683550f54086',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
      * ```
      */
     get(proxyEndpointId, params, options) {
         const { account_id } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/gateway/proxy_endpoints/${proxyEndpointId}`, ProxyEndpointsSinglePage, options);
+        return this._client.get(`/accounts/${account_id}/gateway/proxy_endpoints/${proxyEndpointId}`, options)._thenUnwrap((obj) => obj.result);
     }
 }
 exports.ProxyEndpoints = ProxyEndpoints;
@@ -87202,6 +97562,24 @@ class Rules extends resource_1.APIResource {
     get(ruleId, params, options) {
         const { account_id } = params;
         return this._client.get(`/accounts/${account_id}/gateway/rules/${ruleId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List Zero Trust Gateway rules for the parent account of an account in the MSP
+     * configuration.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const gatewayRule of client.zeroTrust.gateway.rules.listTenant(
+     *   { account_id: '699d98642c564d2e855e9661899b7252' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    listTenant(params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/gateway/rules/tenant`, GatewayRulesSinglePage, options);
     }
     /**
      * Resets the expiration of a Zero Trust Gateway Rule if its duration elapsed and
@@ -87709,7 +98087,6 @@ Networks.TeamnetsV4PagePaginationArray = routes_1.TeamnetsV4PagePaginationArray;
 Networks.VirtualNetworks = virtual_networks_1.VirtualNetworks;
 Networks.VirtualNetworksSinglePage = virtual_networks_1.VirtualNetworksSinglePage;
 Networks.Subnets = subnets_1.Subnets;
-Networks.SubnetListResponsesV4PagePaginationArray = subnets_1.SubnetListResponsesV4PagePaginationArray;
 Networks.HostnameRoutes = hostname_routes_1.HostnameRoutes;
 Networks.HostnameRoutesV4PagePaginationArray = hostname_routes_1.HostnameRoutesV4PagePaginationArray;
 //# sourceMappingURL=networks.js.map
@@ -87965,7 +98342,7 @@ class CloudflareSource extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const cloudflareSource =
+     * const subnet =
      *   await client.zeroTrust.networks.subnets.cloudflareSource.update(
      *     'v4',
      *     { account_id: '699d98642c564d2e855e9661899b7252' },
@@ -88015,14 +98392,17 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.SubnetListResponsesV4PagePaginationArray = exports.Subnets = void 0;
+exports.SubnetsV4PagePaginationArray = exports.Subnets = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const CloudflareSourceAPI = __importStar(__nccwpck_require__(13424));
 const cloudflare_source_1 = __nccwpck_require__(13424);
-const pagination_1 = __nccwpck_require__(30404);
+const WARPAPI = __importStar(__nccwpck_require__(47701));
+const warp_1 = __nccwpck_require__(47701);
+Object.defineProperty(exports, "SubnetsV4PagePaginationArray", ({ enumerable: true, get: function () { return warp_1.SubnetsV4PagePaginationArray; } }));
 class Subnets extends resource_1.APIResource {
     constructor() {
         super(...arguments);
+        this.warp = new WARPAPI.WARP(this._client);
         this.cloudflareSource = new CloudflareSourceAPI.CloudflareSource(this._client);
     }
     /**
@@ -88031,7 +98411,7 @@ class Subnets extends resource_1.APIResource {
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const subnetListResponse of client.zeroTrust.networks.subnets.list(
+     * for await (const subnet of client.zeroTrust.networks.subnets.list(
      *   { account_id: '699d98642c564d2e855e9661899b7252' },
      * )) {
      *   // ...
@@ -88040,16 +98420,121 @@ class Subnets extends resource_1.APIResource {
      */
     list(params, options) {
         const { account_id, ...query } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/zerotrust/subnets`, SubnetListResponsesV4PagePaginationArray, { query, ...options });
+        return this._client.getAPIList(`/accounts/${account_id}/zerotrust/subnets`, warp_1.SubnetsV4PagePaginationArray, { query, ...options });
     }
 }
 exports.Subnets = Subnets;
-class SubnetListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
-}
-exports.SubnetListResponsesV4PagePaginationArray = SubnetListResponsesV4PagePaginationArray;
-Subnets.SubnetListResponsesV4PagePaginationArray = SubnetListResponsesV4PagePaginationArray;
+Subnets.WARP = warp_1.WARP;
 Subnets.CloudflareSource = cloudflare_source_1.CloudflareSource;
 //# sourceMappingURL=subnets.js.map
+
+/***/ }),
+
+/***/ 47701:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SubnetsV4PagePaginationArray = exports.WARP = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class WARP extends resource_1.APIResource {
+    /**
+     * Create a WARP IP assignment subnet. Currently, only IPv4 subnets can be created.
+     *
+     * **Network constraints:**
+     *
+     * - The network must be within one of the following private IP ranges:
+     *   - `10.0.0.0/8` (RFC 1918)
+     *   - `172.16.0.0/12` (RFC 1918)
+     *   - `192.168.0.0/16` (RFC 1918)
+     *   - `100.64.0.0/10` (RFC 6598 - CGNAT)
+     * - The subnet must have a prefix length of `/24` or larger (e.g., `/16`, `/20`,
+     *   `/24` are valid; `/25`, `/28` are not)
+     *
+     * @example
+     * ```ts
+     * const subnet =
+     *   await client.zeroTrust.networks.subnets.warp.create({
+     *     account_id: '699d98642c564d2e855e9661899b7252',
+     *     name: 'IPv4 Cloudflare Source IPs',
+     *     network: '100.64.0.0/12',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/zerotrust/subnets/warp`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Delete a WARP IP assignment subnet. This operation is idempotent - deleting an
+     * already-deleted or non-existent subnet will return success with a null result.
+     *
+     * @example
+     * ```ts
+     * const warp =
+     *   await client.zeroTrust.networks.subnets.warp.delete(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    delete(subnetId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/zerotrust/subnets/warp/${subnetId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a WARP IP assignment subnet.
+     *
+     * **Update constraints:**
+     *
+     * - The `network` field cannot be modified for WARP subnets. Only `name`,
+     *   `comment`, and `is_default_network` can be updated.
+     * - IPv6 subnets cannot be updated
+     *
+     * @example
+     * ```ts
+     * const subnet =
+     *   await client.zeroTrust.networks.subnets.warp.edit(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    edit(subnetId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/zerotrust/subnets/warp/${subnetId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get a WARP IP assignment subnet.
+     *
+     * @example
+     * ```ts
+     * const subnet =
+     *   await client.zeroTrust.networks.subnets.warp.get(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    get(subnetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/zerotrust/subnets/warp/${subnetId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.WARP = WARP;
+class SubnetsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.SubnetsV4PagePaginationArray = SubnetsV4PagePaginationArray;
+//# sourceMappingURL=warp.js.map
 
 /***/ }),
 
@@ -88392,7 +98877,8 @@ exports.Behaviours = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Behaviours extends resource_1.APIResource {
     /**
-     * Update configuration for risk behaviors
+     * Updates risk score behavior configurations, defining weights and thresholds for
+     * risk calculation.
      *
      * @example
      * ```ts
@@ -88413,7 +98899,8 @@ class Behaviours extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Get all behaviors and associated configuration
+     * Retrieves configured risk score behaviors that define how user actions affect
+     * their overall risk score.
      *
      * @example
      * ```ts
@@ -88474,7 +98961,8 @@ class Integrations extends resource_1.APIResource {
         this.references = new ReferencesAPI.References(this._client);
     }
     /**
-     * Create new risk score integration.
+     * Creates a new Zero Trust risk score integration, connecting external risk
+     * signals to Cloudflare's risk scoring system.
      *
      * @example
      * ```ts
@@ -88518,7 +99006,7 @@ class Integrations extends resource_1.APIResource {
         })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * List all risk score integrations for the account.
+     * Lists all configured Zero Trust risk score integrations for the account.
      *
      * @example
      * ```ts
@@ -88535,7 +99023,8 @@ class Integrations extends resource_1.APIResource {
         return this._client.getAPIList(`/accounts/${account_id}/zt_risk_scoring/integrations`, IntegrationListResponsesSinglePage, options);
     }
     /**
-     * Delete a risk score integration.
+     * Removes a Zero Trust risk score integration, disconnecting the external risk
+     * signal source.
      *
      * @example
      * ```ts
@@ -88588,7 +99077,7 @@ exports.References = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class References extends resource_1.APIResource {
     /**
-     * Get risk score integration by reference id.
+     * Retrieves a Zero Trust risk score integration using its external reference ID.
      *
      * @example
      * ```ts
@@ -88655,7 +99144,8 @@ class RiskScoring extends resource_1.APIResource {
         this.integrations = new IntegrationsAPI.Integrations(this._client);
     }
     /**
-     * Get risk event/score information for a specific user
+     * Retrieves the detailed risk score breakdown for a specific user, including
+     * contributing factors.
      *
      * @example
      * ```ts
@@ -88670,7 +99160,7 @@ class RiskScoring extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/zt_risk_scoring/${userId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Clear the risk score for a particular user
+     * Resets risk scores for specified users, clearing their accumulated risk history.
      *
      * @example
      * ```ts
@@ -88705,7 +99195,8 @@ exports.Summary = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Summary extends resource_1.APIResource {
     /**
-     * Get risk score info for all users in the account
+     * Gets an aggregate summary of risk scores across the account, including
+     * distribution and trends.
      *
      * @example
      * ```ts
@@ -88805,8 +99296,10 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CloudflaredListResponsesV4PagePaginationArray = exports.Cloudflared = void 0;
+exports.CloudflareTunnelsV4PagePaginationArray = exports.Cloudflared = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const shared_1 = __nccwpck_require__(8575);
+Object.defineProperty(exports, "CloudflareTunnelsV4PagePaginationArray", ({ enumerable: true, get: function () { return shared_1.CloudflareTunnelsV4PagePaginationArray; } }));
 const ConfigurationsAPI = __importStar(__nccwpck_require__(14815));
 const configurations_1 = __nccwpck_require__(14815);
 const ConnectionsAPI = __importStar(__nccwpck_require__(38551));
@@ -88817,7 +99310,6 @@ const ManagementAPI = __importStar(__nccwpck_require__(74287));
 const management_1 = __nccwpck_require__(74287);
 const TokenAPI = __importStar(__nccwpck_require__(68751));
 const token_1 = __nccwpck_require__(68751);
-const pagination_1 = __nccwpck_require__(30404);
 class Cloudflared extends resource_1.APIResource {
     constructor() {
         super(...arguments);
@@ -88832,7 +99324,7 @@ class Cloudflared extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const cloudflared =
+     * const cloudflareTunnel =
      *   await client.zeroTrust.tunnels.cloudflared.create({
      *     account_id: '699d98642c564d2e855e9661899b7252',
      *     name: 'blog',
@@ -88849,7 +99341,7 @@ class Cloudflared extends resource_1.APIResource {
      * @example
      * ```ts
      * // Automatically fetches more pages as needed.
-     * for await (const cloudflaredListResponse of client.zeroTrust.tunnels.cloudflared.list(
+     * for await (const cloudflareTunnel of client.zeroTrust.tunnels.cloudflared.list(
      *   { account_id: '699d98642c564d2e855e9661899b7252' },
      * )) {
      *   // ...
@@ -88858,14 +99350,14 @@ class Cloudflared extends resource_1.APIResource {
      */
     list(params, options) {
         const { account_id, ...query } = params;
-        return this._client.getAPIList(`/accounts/${account_id}/cfd_tunnel`, CloudflaredListResponsesV4PagePaginationArray, { query, ...options });
+        return this._client.getAPIList(`/accounts/${account_id}/cfd_tunnel`, shared_1.CloudflareTunnelsV4PagePaginationArray, { query, ...options });
     }
     /**
      * Deletes a Cloudflare Tunnel from an account.
      *
      * @example
      * ```ts
-     * const cloudflared =
+     * const cloudflareTunnel =
      *   await client.zeroTrust.tunnels.cloudflared.delete(
      *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '699d98642c564d2e855e9661899b7252' },
@@ -88881,7 +99373,7 @@ class Cloudflared extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const response =
+     * const cloudflareTunnel =
      *   await client.zeroTrust.tunnels.cloudflared.edit(
      *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '699d98642c564d2e855e9661899b7252' },
@@ -88900,7 +99392,7 @@ class Cloudflared extends resource_1.APIResource {
      *
      * @example
      * ```ts
-     * const cloudflared =
+     * const cloudflareTunnel =
      *   await client.zeroTrust.tunnels.cloudflared.get(
      *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
      *     { account_id: '699d98642c564d2e855e9661899b7252' },
@@ -88913,10 +99405,6 @@ class Cloudflared extends resource_1.APIResource {
     }
 }
 exports.Cloudflared = Cloudflared;
-class CloudflaredListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
-}
-exports.CloudflaredListResponsesV4PagePaginationArray = CloudflaredListResponsesV4PagePaginationArray;
-Cloudflared.CloudflaredListResponsesV4PagePaginationArray = CloudflaredListResponsesV4PagePaginationArray;
 Cloudflared.Configurations = configurations_1.Configurations;
 Cloudflared.Connections = connections_1.Connections;
 Cloudflared.ClientsSinglePage = connections_1.ClientsSinglePage;
@@ -89210,10 +99698,121 @@ class TunnelListResponsesV4PagePaginationArray extends pagination_1.V4PagePagina
 exports.TunnelListResponsesV4PagePaginationArray = TunnelListResponsesV4PagePaginationArray;
 Tunnels.TunnelListResponsesV4PagePaginationArray = TunnelListResponsesV4PagePaginationArray;
 Tunnels.Cloudflared = cloudflared_1.Cloudflared;
-Tunnels.CloudflaredListResponsesV4PagePaginationArray = cloudflared_1.CloudflaredListResponsesV4PagePaginationArray;
 Tunnels.WARPConnector = warp_connector_1.WARPConnector;
 Tunnels.WARPConnectorListResponsesV4PagePaginationArray = warp_connector_1.WARPConnectorListResponsesV4PagePaginationArray;
 //# sourceMappingURL=tunnels.js.map
+
+/***/ }),
+
+/***/ 3132:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ConnectionGetResponsesSinglePage = exports.Connections = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Connections extends resource_1.APIResource {
+    /**
+     * Fetches connection details for a WARP Connector Tunnel.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const connectionGetResponse of client.zeroTrust.tunnels.warpConnector.connections.get(
+     *   'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *   { account_id: '699d98642c564d2e855e9661899b7252' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    get(tunnelId, params, options) {
+        const { account_id } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/warp_connector/${tunnelId}/connections`, ConnectionGetResponsesSinglePage, options);
+    }
+}
+exports.Connections = Connections;
+class ConnectionGetResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.ConnectionGetResponsesSinglePage = ConnectionGetResponsesSinglePage;
+Connections.ConnectionGetResponsesSinglePage = ConnectionGetResponsesSinglePage;
+//# sourceMappingURL=connections.js.map
+
+/***/ }),
+
+/***/ 9293:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Connectors = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Connectors extends resource_1.APIResource {
+    /**
+     * Fetches connector and connection details for a WARP Connector Tunnel.
+     *
+     * @example
+     * ```ts
+     * const connector =
+     *   await client.zeroTrust.tunnels.warpConnector.connectors.get(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     '1bedc50d-42b3-473c-b108-ff3d10c0d925',
+     *     { account_id: '699d98642c564d2e855e9661899b7252' },
+     *   );
+     * ```
+     */
+    get(tunnelId, connectorId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/warp_connector/${tunnelId}/connectors/${connectorId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Connectors = Connectors;
+//# sourceMappingURL=connectors.js.map
+
+/***/ }),
+
+/***/ 19687:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Failover = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Failover extends resource_1.APIResource {
+    /**
+     * Triggers a manual failover for a specific WARP Connector Tunnel, setting the
+     * specified client as the active connector. The tunnel must be configured for high
+     * availability (HA) and the client must be linked to the tunnel.
+     *
+     * @example
+     * ```ts
+     * const failover =
+     *   await client.zeroTrust.tunnels.warpConnector.failover.update(
+     *     'f70ff985-a4ef-4643-bbbc-4a0ed4fc8415',
+     *     {
+     *       account_id: '699d98642c564d2e855e9661899b7252',
+     *       client_id: '1bedc50d-42b3-473c-b108-ff3d10c0d925',
+     *     },
+     *   );
+     * ```
+     */
+    update(tunnelId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.put(`/accounts/${account_id}/warp_connector/${tunnelId}/failover`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Failover = Failover;
+//# sourceMappingURL=failover.js.map
 
 /***/ }),
 
@@ -89282,6 +99881,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.WARPConnectorListResponsesV4PagePaginationArray = exports.WARPConnector = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const ConnectionsAPI = __importStar(__nccwpck_require__(3132));
+const connections_1 = __nccwpck_require__(3132);
+const ConnectorsAPI = __importStar(__nccwpck_require__(9293));
+const connectors_1 = __nccwpck_require__(9293);
+const FailoverAPI = __importStar(__nccwpck_require__(19687));
+const failover_1 = __nccwpck_require__(19687);
 const TokenAPI = __importStar(__nccwpck_require__(97308));
 const token_1 = __nccwpck_require__(97308);
 const pagination_1 = __nccwpck_require__(30404);
@@ -89289,6 +99894,9 @@ class WARPConnector extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.token = new TokenAPI.Token(this._client);
+        this.connections = new ConnectionsAPI.Connections(this._client);
+        this.connectors = new ConnectorsAPI.Connectors(this._client);
+        this.failover = new FailoverAPI.Failover(this._client);
     }
     /**
      * Creates a new Warp Connector Tunnel in an account.
@@ -89382,6 +99990,10 @@ exports.WARPConnectorListResponsesV4PagePaginationArray = WARPConnectorListRespo
 WARPConnector.WARPConnectorListResponsesV4PagePaginationArray =
     WARPConnectorListResponsesV4PagePaginationArray;
 WARPConnector.Token = token_1.Token;
+WARPConnector.Connections = connections_1.Connections;
+WARPConnector.ConnectionGetResponsesSinglePage = connections_1.ConnectionGetResponsesSinglePage;
+WARPConnector.Connectors = connectors_1.Connectors;
+WARPConnector.Failover = failover_1.Failover;
 //# sourceMappingURL=warp-connector.js.map
 
 /***/ }),
@@ -89565,6 +100177,138 @@ class CustomNameserverUpdateResponsesSinglePage extends pagination_1.SinglePage 
 exports.CustomNameserverUpdateResponsesSinglePage = CustomNameserverUpdateResponsesSinglePage;
 CustomNameservers.CustomNameserverUpdateResponsesSinglePage = CustomNameserverUpdateResponsesSinglePage;
 //# sourceMappingURL=custom-nameservers.js.map
+
+/***/ }),
+
+/***/ 78664:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Environments = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Environments extends resource_1.APIResource {
+    /**
+     * Create zone environments
+     *
+     * @example
+     * ```ts
+     * const environment = await client.zones.environments.create({
+     *   zone_id: 'zone_id',
+     *   environments: [
+     *     {
+     *       expression: 'expression',
+     *       locked_on_deployment: true,
+     *       name: 'name',
+     *       position: {},
+     *       ref: 'ref',
+     *       version: 0,
+     *     },
+     *   ],
+     * });
+     * ```
+     */
+    create(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.post(`/zones/${zone_id}/environments`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Upsert zone environments
+     *
+     * @example
+     * ```ts
+     * const environment = await client.zones.environments.update({
+     *   zone_id: 'zone_id',
+     *   environments: [
+     *     {
+     *       expression: 'expression',
+     *       locked_on_deployment: true,
+     *       name: 'name',
+     *       position: {},
+     *       ref: 'ref',
+     *       version: 0,
+     *     },
+     *   ],
+     * });
+     * ```
+     */
+    update(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.put(`/zones/${zone_id}/environments`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List zone environments
+     *
+     * @example
+     * ```ts
+     * const environments = await client.zones.environments.list({
+     *   zone_id: 'zone_id',
+     * });
+     * ```
+     */
+    list(params, options) {
+        const { zone_id } = params;
+        return this._client.get(`/zones/${zone_id}/environments`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Delete zone environment
+     *
+     * @example
+     * ```ts
+     * const environment = await client.zones.environments.delete(
+     *   'environment_id',
+     *   { zone_id: 'zone_id' },
+     * );
+     * ```
+     */
+    delete(environmentId, params, options) {
+        const { zone_id } = params;
+        return this._client.delete(`/zones/${zone_id}/environments/${environmentId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Partially update zone environments
+     *
+     * @example
+     * ```ts
+     * const response = await client.zones.environments.edit({
+     *   zone_id: 'zone_id',
+     *   environments: [
+     *     {
+     *       expression: 'expression',
+     *       locked_on_deployment: true,
+     *       name: 'name',
+     *       position: {},
+     *       ref: 'ref',
+     *       version: 0,
+     *     },
+     *   ],
+     * });
+     * ```
+     */
+    edit(params, options) {
+        const { zone_id, ...body } = params;
+        return this._client.patch(`/zones/${zone_id}/environments`, { body, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Roll back zone environment
+     *
+     * @example
+     * ```ts
+     * const response = await client.zones.environments.rollback(
+     *   'environment_id',
+     *   { zone_id: 'zone_id' },
+     * );
+     * ```
+     */
+    rollback(environmentId, params, options) {
+        const { zone_id } = params;
+        return this._client.post(`/zones/${zone_id}/environments/${environmentId}/rollback`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Environments = Environments;
+//# sourceMappingURL=environments.js.map
 
 /***/ }),
 
@@ -89804,7 +100548,7 @@ class Subscriptions extends resource_1.APIResource {
      * ```ts
      * const subscription =
      *   await client.zones.subscriptions.create({
-     *     zone_id: '506e3185e9c882d175a2d0cb0093d9f2',
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   });
      * ```
      */
@@ -89819,7 +100563,7 @@ class Subscriptions extends resource_1.APIResource {
      * ```ts
      * const subscription =
      *   await client.zones.subscriptions.update({
-     *     zone_id: '506e3185e9c882d175a2d0cb0093d9f2',
+     *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *   });
      * ```
      */
@@ -89833,7 +100577,7 @@ class Subscriptions extends resource_1.APIResource {
      * @example
      * ```ts
      * const subscription = await client.zones.subscriptions.get({
-     *   zone_id: '506e3185e9c882d175a2d0cb0093d9f2',
+     *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      * });
      * ```
      */
@@ -89884,6 +100628,8 @@ const ActivationCheckAPI = __importStar(__nccwpck_require__(94399));
 const activation_check_1 = __nccwpck_require__(94399);
 const CustomNameserversAPI = __importStar(__nccwpck_require__(90797));
 const custom_nameservers_1 = __nccwpck_require__(90797);
+const EnvironmentsAPI = __importStar(__nccwpck_require__(78664));
+const environments_1 = __nccwpck_require__(78664);
 const HoldsAPI = __importStar(__nccwpck_require__(49290));
 const holds_1 = __nccwpck_require__(49290);
 const PlansAPI = __importStar(__nccwpck_require__(42016));
@@ -89900,6 +100646,7 @@ class Zones extends resource_1.APIResource {
         super(...arguments);
         this.activationCheck = new ActivationCheckAPI.ActivationCheck(this._client);
         this.settings = new SettingsAPI.Settings(this._client);
+        this.environments = new EnvironmentsAPI.Environments(this._client);
         this.customNameservers = new CustomNameserversAPI.CustomNameservers(this._client);
         this.holds = new HoldsAPI.Holds(this._client);
         this.subscriptions = new SubscriptionsAPI.Subscriptions(this._client);
@@ -89976,6 +100723,7 @@ exports.ZonesV4PagePaginationArray = ZonesV4PagePaginationArray;
 Zones.ZonesV4PagePaginationArray = ZonesV4PagePaginationArray;
 Zones.ActivationCheck = activation_check_1.ActivationCheck;
 Zones.Settings = settings_1.Settings;
+Zones.Environments = environments_1.Environments;
 Zones.CustomNameservers = custom_nameservers_1.CustomNameservers;
 Zones.CustomNameserverUpdateResponsesSinglePage = custom_nameservers_1.CustomNameserverUpdateResponsesSinglePage;
 Zones.Holds = holds_1.Holds;
@@ -90201,7 +100949,7 @@ const addFormValueJson = async (form, key, value) => {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.VERSION = void 0;
-exports.VERSION = '5.2.0'; // x-release-please-version
+exports.VERSION = '6.0.0'; // x-release-please-version
 //# sourceMappingURL=version.js.map
 
 /***/ }),
