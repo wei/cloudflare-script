@@ -78671,6 +78671,77 @@ Stores.SecretListResponsesV4PagePaginationArray = secrets_1.SecretListResponsesV
 
 /***/ }),
 
+/***/ 97200:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AuditLogListByInsightResponsesCursorPagination = exports.AuditLogListResponsesCursorPagination = exports.AuditLogs = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+const error_1 = __nccwpck_require__(47952);
+const pagination_1 = __nccwpck_require__(30404);
+class AuditLogs extends resource_1.APIResource {
+    list(params = {}, options) {
+        if ((0, core_1.isRequestOptions)(params)) {
+            return this.list({}, params);
+        }
+        const { account_id, zone_id, ...query } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.getAPIList(`/${accountOrZone}/${accountOrZoneId}/security-center/insights/audit-log`, AuditLogListResponsesCursorPagination, { query, ...options });
+    }
+    listByInsight(issueId, params = {}, options) {
+        if ((0, core_1.isRequestOptions)(params)) {
+            return this.listByInsight(issueId, {}, params);
+        }
+        const { account_id, zone_id, ...query } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.getAPIList(`/${accountOrZone}/${accountOrZoneId}/security-center/insights/${issueId}/audit-log`, AuditLogListByInsightResponsesCursorPagination, { query, ...options });
+    }
+}
+exports.AuditLogs = AuditLogs;
+class AuditLogListResponsesCursorPagination extends pagination_1.CursorPagination {
+}
+exports.AuditLogListResponsesCursorPagination = AuditLogListResponsesCursorPagination;
+class AuditLogListByInsightResponsesCursorPagination extends pagination_1.CursorPagination {
+}
+exports.AuditLogListByInsightResponsesCursorPagination = AuditLogListByInsightResponsesCursorPagination;
+AuditLogs.AuditLogListResponsesCursorPagination = AuditLogListResponsesCursorPagination;
+AuditLogs.AuditLogListByInsightResponsesCursorPagination = AuditLogListByInsightResponsesCursorPagination;
+//# sourceMappingURL=audit-logs.js.map
+
+/***/ }),
+
 /***/ 56357:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -78714,6 +78785,89 @@ exports.Class = Class;
 
 /***/ }),
 
+/***/ 72641:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Classification = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const error_1 = __nccwpck_require__(47952);
+class Classification extends resource_1.APIResource {
+    /**
+     * Updates the user classification for a Security Center insight. Valid values are
+     * 'false_positive' or 'accept_risk'. To reset, set classification to null. Cannot
+     * change directly between classification values - must reset to null first.
+     *
+     * @example
+     * ```ts
+     * const classification =
+     *   await client.securityCenter.insights.classification.update(
+     *     'issue_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    update(issueId, params, options) {
+        const { account_id, zone_id, ...body } = params;
+        if (!account_id && !zone_id) {
+            throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+        }
+        if (account_id && zone_id) {
+            throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+        }
+        const { accountOrZone, accountOrZoneId } = account_id ?
+            {
+                accountOrZone: 'accounts',
+                accountOrZoneId: account_id,
+            }
+            : {
+                accountOrZone: 'zones',
+                accountOrZoneId: zone_id,
+            };
+        return this._client.patch(`/${accountOrZone}/${accountOrZoneId}/security-center/insights/${issueId}/classification`, { body, ...options });
+    }
+}
+exports.Classification = Classification;
+//# sourceMappingURL=classification.js.map
+
+/***/ }),
+
+/***/ 80862:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Context = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class Context extends resource_1.APIResource {
+    /**
+     * Returns the full context payload for an insight. This endpoint is used for
+     * insights with large payloads that are not included inline in the list response.
+     *
+     * @example
+     * ```ts
+     * const context =
+     *   await client.securityCenter.insights.context.get(
+     *     'issue_id',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(issueId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/security-center/insights/${issueId}/context`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Context = Context;
+//# sourceMappingURL=context.js.map
+
+/***/ }),
+
 /***/ 85492:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -78747,8 +78901,14 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.InsightListResponsesV4PagePagination = exports.Insights = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
+const AuditLogsAPI = __importStar(__nccwpck_require__(97200));
+const audit_logs_1 = __nccwpck_require__(97200);
 const ClassAPI = __importStar(__nccwpck_require__(56357));
 const class_1 = __nccwpck_require__(56357);
+const ClassificationAPI = __importStar(__nccwpck_require__(72641));
+const classification_1 = __nccwpck_require__(72641);
+const ContextAPI = __importStar(__nccwpck_require__(80862));
+const context_1 = __nccwpck_require__(80862);
 const SeverityAPI = __importStar(__nccwpck_require__(67198));
 const severity_1 = __nccwpck_require__(67198);
 const TypeAPI = __importStar(__nccwpck_require__(63461));
@@ -78761,6 +78921,9 @@ class Insights extends resource_1.APIResource {
         this.class = new ClassAPI.Class(this._client);
         this.severity = new SeverityAPI.Severity(this._client);
         this.type = new TypeAPI.Type(this._client);
+        this.auditLogs = new AuditLogsAPI.AuditLogs(this._client);
+        this.classification = new ClassificationAPI.Classification(this._client);
+        this.context = new ContextAPI.Context(this._client);
     }
     list(params = {}, options) {
         if ((0, core_1.isRequestOptions)(params)) {
@@ -78787,6 +78950,14 @@ class Insights extends resource_1.APIResource {
     /**
      * Archives a Security Center insight for an account or zone, removing it from the
      * active insights list while preserving historical data.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.securityCenter.insights.dismiss('issue_id', {
+     *     account_id: 'account_id',
+     *   });
+     * ```
      */
     dismiss(issueId, params, options) {
         const { account_id, zone_id, ...body } = params;
@@ -78816,6 +78987,11 @@ Insights.InsightListResponsesV4PagePagination = InsightListResponsesV4PagePagina
 Insights.Class = class_1.Class;
 Insights.Severity = severity_1.Severity;
 Insights.Type = type_1.Type;
+Insights.AuditLogs = audit_logs_1.AuditLogs;
+Insights.AuditLogListResponsesCursorPagination = audit_logs_1.AuditLogListResponsesCursorPagination;
+Insights.AuditLogListByInsightResponsesCursorPagination = audit_logs_1.AuditLogListByInsightResponsesCursorPagination;
+Insights.Classification = classification_1.Classification;
+Insights.Context = context_1.Context;
 //# sourceMappingURL=insights.js.map
 
 /***/ }),
@@ -91790,6 +91966,124 @@ exports.ConnectivitySettings = ConnectivitySettings;
 
 /***/ }),
 
+/***/ 81854:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DeploymentGroupsV4PagePaginationArray = exports.DeploymentGroups = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class DeploymentGroups extends resource_1.APIResource {
+    /**
+     * Creates a new deployment group. Policy IDs must be unique across all deployment
+     * groups. This endpoint is in Beta.
+     *
+     * @example
+     * ```ts
+     * const deploymentGroup =
+     *   await client.zeroTrust.devices.deploymentGroups.create({
+     *     account_id: 'account_id',
+     *     name: 'Engineering Ring 0',
+     *     version_config: [
+     *       {
+     *         target_environment: 'windows',
+     *         version: '2026.5.234.0',
+     *       },
+     *     ],
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/devices/deployment-groups`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Lists all deployment groups for an account. Use deployment groups to assign
+     * target WARP client versions to specific devices. This endpoint is in Beta.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const deploymentGroup of client.zeroTrust.devices.deploymentGroups.list(
+     *   { account_id: 'account_id' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/devices/deployment-groups`, DeploymentGroupsV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Deletes a deployment group. Associated policies no longer apply and devices stop
+     * receiving version targets. This endpoint is in Beta.
+     *
+     * @example
+     * ```ts
+     * const deploymentGroup =
+     *   await client.zeroTrust.devices.deploymentGroups.delete(
+     *     'group_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    delete(groupId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/devices/deployment-groups/${groupId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Updates a deployment group. Returns 409 if any newly added policy IDs already
+     * belong to another deployment group. This endpoint is in Beta.
+     *
+     * @example
+     * ```ts
+     * const deploymentGroup =
+     *   await client.zeroTrust.devices.deploymentGroups.edit(
+     *     'group_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    edit(groupId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/devices/deployment-groups/${groupId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Fetches a single deployment group by its ID. This endpoint is in Beta.
+     *
+     * @example
+     * ```ts
+     * const deploymentGroup =
+     *   await client.zeroTrust.devices.deploymentGroups.get(
+     *     'group_id',
+     *     { account_id: 'account_id' },
+     *   );
+     * ```
+     */
+    get(groupId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/devices/deployment-groups/${groupId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.DeploymentGroups = DeploymentGroups;
+class DeploymentGroupsV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.DeploymentGroupsV4PagePaginationArray = DeploymentGroupsV4PagePaginationArray;
+DeploymentGroups.DeploymentGroupsV4PagePaginationArray = DeploymentGroupsV4PagePaginationArray;
+//# sourceMappingURL=deployment-groups.js.map
+
+/***/ }),
+
 /***/ 66827:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -91822,6 +92116,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.DevicesSinglePage = exports.Devices = void 0;
 const resource_1 = __nccwpck_require__(59108);
+const DeploymentGroupsAPI = __importStar(__nccwpck_require__(81854));
+const deployment_groups_1 = __nccwpck_require__(81854);
 const DevicesDevicesAPI = __importStar(__nccwpck_require__(38410));
 const devices_1 = __nccwpck_require__(38410);
 const DEXTestsAPI = __importStar(__nccwpck_require__(63629));
@@ -91857,6 +92153,7 @@ class Devices extends resource_1.APIResource {
         this.registrations = new RegistrationsAPI.Registrations(this._client);
         this.dexTests = new DEXTestsAPI.DEXTests(this._client);
         this.ipProfiles = new IPProfilesAPI.IPProfiles(this._client);
+        this.deploymentGroups = new DeploymentGroupsAPI.DeploymentGroups(this._client);
         this.networks = new NetworksAPI.Networks(this._client);
         this.fleetStatus = new FleetStatusAPI.FleetStatus(this._client);
         this.policies = new PoliciesAPI.Policies(this._client);
@@ -91913,6 +92210,8 @@ Devices.DEXTests = dex_tests_1.DEXTests;
 Devices.DEXTestListResponsesV4PagePaginationArray = dex_tests_1.DEXTestListResponsesV4PagePaginationArray;
 Devices.IPProfiles = ip_profiles_1.IPProfiles;
 Devices.IPProfilesSinglePage = ip_profiles_1.IPProfilesSinglePage;
+Devices.DeploymentGroups = deployment_groups_1.DeploymentGroups;
+Devices.DeploymentGroupsV4PagePaginationArray = deployment_groups_1.DeploymentGroupsV4PagePaginationArray;
 Devices.Networks = networks_1.Networks;
 Devices.DeviceNetworksSinglePage = networks_1.DeviceNetworksSinglePage;
 Devices.FleetStatus = fleet_status_1.FleetStatus;
@@ -100949,7 +101248,7 @@ const addFormValueJson = async (form, key, value) => {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.VERSION = void 0;
-exports.VERSION = '6.0.0'; // x-release-please-version
+exports.VERSION = '6.1.0'; // x-release-please-version
 //# sourceMappingURL=version.js.map
 
 /***/ }),
