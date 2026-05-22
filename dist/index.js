@@ -34801,6 +34801,7 @@ const d1_1 = __nccwpck_require__(95583);
 const dcv_delegation_1 = __nccwpck_require__(60017);
 const ddos_protection_1 = __nccwpck_require__(43235);
 const diagnostics_1 = __nccwpck_require__(53639);
+const dls_1 = __nccwpck_require__(11927);
 const dns_firewall_1 = __nccwpck_require__(53629);
 const dns_1 = __nccwpck_require__(33211);
 const durable_objects_1 = __nccwpck_require__(84947);
@@ -34960,6 +34961,7 @@ class Cloudflare extends Core.APIClient {
         this.urlNormalization = new API.URLNormalization(this);
         this.spectrum = new API.Spectrum(this);
         this.addressing = new API.Addressing(this);
+        this.dls = new API.DLS(this);
         this.auditLogs = new API.AuditLogs(this);
         this.billing = new API.Billing(this);
         this.brandProtection = new API.BrandProtection(this);
@@ -35184,6 +35186,7 @@ Cloudflare.Rulesets = rulesets_1.Rulesets;
 Cloudflare.URLNormalization = url_normalization_1.URLNormalization;
 Cloudflare.Spectrum = spectrum_1.Spectrum;
 Cloudflare.Addressing = addressing_1.Addressing;
+Cloudflare.DLS = dls_1.DLS;
 Cloudflare.AuditLogs = audit_logs_1.AuditLogs;
 Cloudflare.Billing = billing_1.Billing;
 Cloudflare.BrandProtection = brand_protection_1.BrandProtection;
@@ -43669,6 +43672,25 @@ exports.Usage = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class Usage extends resource_1.APIResource {
     /**
+     * Returns cost and usage data for a single Cloudflare account, aligned with the
+     * [FinOps FOCUS v1.3](https://focus.finops.org/focus-specification/v1-3/) Cost and
+     * Usage dataset specification.
+     *
+     * Each record represents one billable metric for one account on one day. This
+     * includes all metered usage, including usage that falls within free-tier
+     * allowances and may result in zero cost.
+     *
+     * **Note:** Cost and pricing fields are not yet populated and will be absent from
+     * responses until billing integration is complete.
+     *
+     * When `from` and `to` are omitted, defaults to the start of the current month
+     * through today. The maximum date range is 31 days.
+     */
+    get(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.get(`/accounts/${account_id}/billable/usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
+    }
+    /**
      * Returns billable usage data for PayGo (self-serve) accounts. When no query
      * parameters are provided, returns usage for the current billing period. This
      * endpoint is currently in alpha and access is restricted to select accounts.
@@ -43676,10 +43698,7 @@ class Usage extends resource_1.APIResource {
      */
     paygo(params, options) {
         const { account_id, ...query } = params;
-        return this._client.get(`/accounts/${account_id}/billing/usage/paygo`, {
-            query,
-            ...options,
-        })._thenUnwrap((obj) => obj.result);
+        return this._client.get(`/accounts/${account_id}/paygo-usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
     }
 }
 exports.Usage = Usage;
@@ -48532,8 +48551,6 @@ class CustomCertificates extends resource_1.APIResource {
      *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
      *     certificate:
      *       '-----BEGIN CERTIFICATE-----\nMIIDtTCCAp2gAwIBAgIJAMHAwfXZ5/PWMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV\nBAYTAkFVMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJbnRlcm5ldCBX\naWRnaXRzIFB0eSBMdGQwHhcNMTYwODI0MTY0MzAxWhcNMTYxMTIyMTY0MzAxWjBF\nMQswCQYDVQQGEwJBVTETMBEGA1UECBMKU29tZS1TdGF0ZTEhMB8GA1UEChMYSW50\nZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB\nCgKCAQEAwQHoetcl9+5ikGzV6cMzWtWPJHqXT3wpbEkRU9Yz7lgvddmGdtcGbg/1\nCGZu0jJGkMoppoUo4c3dts3iwqRYmBikUP77wwY2QGmDZw2FvkJCJlKnabIRuGvB\nKwzESIXgKk2016aTP6/dAjEHyo6SeoK8lkIySUvK0fyOVlsiEsCmOpidtnKX/a+5\n0GjB79CJH4ER2lLVZnhePFR/zUOyPxZQQ4naHf7yu/b5jhO0f8fwt+pyFxIXjbEI\ndZliWRkRMtzrHOJIhrmJ2A1J7iOrirbbwillwjjNVUWPf3IJ3M12S9pEewooaeO2\nizNTERcG9HzAacbVRn2Y2SWIyT/18QIDAQABo4GnMIGkMB0GA1UdDgQWBBT/LbE4\n9rWf288N6sJA5BRb6FJIGDB1BgNVHSMEbjBsgBT/LbE49rWf288N6sJA5BRb6FJI\nGKFJpEcwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgTClNvbWUtU3RhdGUxITAfBgNV\nBAoTGEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZIIJAMHAwfXZ5/PWMAwGA1UdEwQF\nMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAHHFwl0tH0quUYZYO0dZYt4R7SJ0pCm2\n2satiyzHl4OnXcHDpekAo7/a09c6Lz6AU83cKy/+x3/djYHXWba7HpEu0dR3ugQP\nMlr4zrhd9xKZ0KZKiYmtJH+ak4OM4L3FbT0owUZPyjLSlhMtJVcoRp5CJsjAMBUG\nSvD8RX+T01wzox/Qb+lnnNnOlaWpqu8eoOenybxKp1a9ULzIVvN/LAcc+14vioFq\n2swRWtmocBAs8QR9n4uvbpiYvS8eYueDCWMM4fvFfBhaDZ3N9IbtySh3SpFdQDhw\nYbjM2rxXiyLGxB4Bol7QTv4zHif7Zt89FReT/NBy4rzaskDJY5L6xmY=\n-----END CERTIFICATE-----\n',
-     *     private_key:
-     *       '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAwQHoetcl9+5ikGzV6cMzWtWPJHqXT3wpbEkRU9Yz7lgvddmG\ndtcGbg/1CGZu0jJGkMoppoUo4c3dts3iwqRYmBikUP77wwY2QGmDZw2FvkJCJlKn\nabIRuGvBKwzESIXgKk2016aTP6/dAjEHyo6SeoK8lkIySUvK0fyOVlsiEsCmOpid\ntnKX/a+50GjB79CJH4ER2lLVZnhePFR/zUOyPxZQQ4naHf7yu/b5jhO0f8fwt+py\nFxIXjbEIdZliWRkRMtzrHOJIhrmJ2A1J7iOrirbbwillwjjNVUWPf3IJ3M12S9pE\newooaeO2izNTERcG9HzAacbVRn2Y2SWIyT/18QIDAQABAoIBACbhTYXBZYKmYPCb\nHBR1IBlCQA2nLGf0qRuJNJZg5iEzXows/6tc8YymZkQE7nolapWsQ+upk2y5Xdp/\naxiuprIs9JzkYK8Ox0r+dlwCG1kSW+UAbX0bQ/qUqlsTvU6muVuMP8vZYHxJ3wmb\n+ufRBKztPTQ/rYWaYQcgC0RWI20HTFBMxlTAyNxYNWzX7RKFkGVVyB9RsAtmcc8g\n+j4OdosbfNoJPS0HeIfNpAznDfHKdxDk2Yc1tV6RHBrC1ynyLE9+TaflIAdo2MVv\nKLMLq51GqYKtgJFIlBRPQqKoyXdz3fGvXrTkf/WY9QNq0J1Vk5ERePZ54mN8iZB7\n9lwy/AkCgYEA6FXzosxswaJ2wQLeoYc7ceaweX/SwTvxHgXzRyJIIT0eJWgx13Wo\n/WA3Iziimsjf6qE+SI/8laxPp2A86VMaIt3Z3mJN/CqSVGw8LK2AQst+OwdPyDMu\niacE8lj/IFGC8mwNUAb9CzGU3JpU4PxxGFjS/eMtGeRXCWkK4NE+G08CgYEA1Kp9\nN2JrVlqUz+gAX+LPmE9OEMAS9WQSQsfCHGogIFDGGcNf7+uwBM7GAaSJIP01zcoe\nVAgWdzXCv3FLhsaZoJ6RyLOLay5phbu1iaTr4UNYm5WtYTzMzqh8l1+MFFDl9xDB\nvULuCIIrglM5MeS/qnSg1uMoH2oVPj9TVst/ir8CgYEAxrI7Ws9Zc4Bt70N1As+U\nlySjaEVZCMkqvHJ6TCuVZFfQoE0r0whdLdRLU2PsLFP+q7qaeZQqgBaNSKeVcDYR\n9B+nY/jOmQoPewPVsp/vQTCnE/R81spu0mp0YI6cIheT1Z9zAy322svcc43JaWB7\nmEbeqyLOP4Z4qSOcmghZBSECgYACvR9Xs0DGn+wCsW4vze/2ei77MD4OQvepPIFX\ndFZtlBy5ADcgE9z0cuVB6CiL8DbdK5kwY9pGNr8HUCI03iHkW6Zs+0L0YmihfEVe\nPG19PSzK9CaDdhD9KFZSbLyVFmWfxOt50H7YRTTiPMgjyFpfi5j2q348yVT0tEQS\nfhRqaQKBgAcWPokmJ7EbYQGeMbS7HC8eWO/RyamlnSffdCdSc7ue3zdVJxpAkQ8W\nqu80pEIF6raIQfAf8MXiiZ7auFOSnHQTXUbhCpvDLKi0Mwq3G8Pl07l+2s6dQG6T\nlv6XTQaMyf6n1yjzL+fzDrH3qXMxHMO/b13EePXpDMpY7HQpoLDi\n-----END RSA PRIVATE KEY-----\n',
      *   });
      * ```
      */
@@ -51291,6 +51308,267 @@ class TraceroutesSinglePage extends pagination_1.SinglePage {
 exports.TraceroutesSinglePage = TraceroutesSinglePage;
 Traceroutes.TraceroutesSinglePage = TraceroutesSinglePage;
 //# sourceMappingURL=traceroutes.js.map
+
+/***/ }),
+
+/***/ 11927:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DLS = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const RegionsAPI = __importStar(__nccwpck_require__(20183));
+const regions_1 = __nccwpck_require__(20183);
+const RegionalServicesAPI = __importStar(__nccwpck_require__(44681));
+const regional_services_1 = __nccwpck_require__(44681);
+class DLS extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.regions = new RegionsAPI.Regions(this._client);
+        this.regionalServices = new RegionalServicesAPI.RegionalServices(this._client);
+    }
+}
+exports.DLS = DLS;
+DLS.Regions = regions_1.Regions;
+DLS.RegionListResponsesCursorPagination = regions_1.RegionListResponsesCursorPagination;
+DLS.RegionalServices = regional_services_1.RegionalServices;
+//# sourceMappingURL=dls.js.map
+
+/***/ }),
+
+/***/ 64324:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PrefixBindingListResponsesCursorPagination = exports.PrefixBindings = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class PrefixBindings extends resource_1.APIResource {
+    /**
+     * Create a DLS prefix binding
+     *
+     * @example
+     * ```ts
+     * const prefixBinding =
+     *   await client.dls.regionalServices.prefixBindings.create({
+     *     account_id: 0,
+     *     cidr: '10.0.1.0/24',
+     *     prefix_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+     *     region_key: 'eu',
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/dls/regional_services/prefix_bindings`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List DLS prefix bindings for an account
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const prefixBindingListResponse of client.dls.regionalServices.prefixBindings.list(
+     *   { account_id: 0 },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/dls/regional_services/prefix_bindings`, PrefixBindingListResponsesCursorPagination, { query, ...options });
+    }
+    /**
+     * Delete a DLS prefix binding
+     *
+     * @example
+     * ```ts
+     * const prefixBinding =
+     *   await client.dls.regionalServices.prefixBindings.delete(
+     *     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+     *     { account_id: 0 },
+     *   );
+     * ```
+     */
+    delete(bindingId, params, options) {
+        const { account_id } = params;
+        return this._client.delete(`/accounts/${account_id}/dls/regional_services/prefix_bindings/${bindingId}`, options);
+    }
+    /**
+     * Update a DLS prefix binding
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.dls.regionalServices.prefixBindings.edit(
+     *     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+     *     { account_id: 0, region_key: 'eu' },
+     *   );
+     * ```
+     */
+    edit(bindingId, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/dls/regional_services/prefix_bindings/${bindingId}`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Get a DLS prefix binding
+     *
+     * @example
+     * ```ts
+     * const prefixBinding =
+     *   await client.dls.regionalServices.prefixBindings.get(
+     *     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+     *     { account_id: 0 },
+     *   );
+     * ```
+     */
+    get(bindingId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/dls/regional_services/prefix_bindings/${bindingId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.PrefixBindings = PrefixBindings;
+class PrefixBindingListResponsesCursorPagination extends pagination_1.CursorPagination {
+}
+exports.PrefixBindingListResponsesCursorPagination = PrefixBindingListResponsesCursorPagination;
+PrefixBindings.PrefixBindingListResponsesCursorPagination = PrefixBindingListResponsesCursorPagination;
+//# sourceMappingURL=prefix-bindings.js.map
+
+/***/ }),
+
+/***/ 44681:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RegionalServices = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const PrefixBindingsAPI = __importStar(__nccwpck_require__(64324));
+const prefix_bindings_1 = __nccwpck_require__(64324);
+class RegionalServices extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.prefixBindings = new PrefixBindingsAPI.PrefixBindings(this._client);
+    }
+}
+exports.RegionalServices = RegionalServices;
+RegionalServices.PrefixBindings = prefix_bindings_1.PrefixBindings;
+RegionalServices.PrefixBindingListResponsesCursorPagination = prefix_bindings_1.PrefixBindingListResponsesCursorPagination;
+//# sourceMappingURL=regional-services.js.map
+
+/***/ }),
+
+/***/ 20183:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RegionListResponsesCursorPagination = exports.Regions = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Regions extends resource_1.APIResource {
+    /**
+     * List DLS regions for an account
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const regionListResponse of client.dls.regions.list(
+     *   { account_id: 0 },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/dls/regions`, RegionListResponsesCursorPagination, { query, ...options });
+    }
+    /**
+     * Get a DLS region
+     *
+     * @example
+     * ```ts
+     * const region = await client.dls.regions.get(
+     *   'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+     *   { account_id: 0 },
+     * );
+     * ```
+     */
+    get(regionId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/dls/regions/${regionId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Regions = Regions;
+class RegionListResponsesCursorPagination extends pagination_1.CursorPagination {
+}
+exports.RegionListResponsesCursorPagination = RegionListResponsesCursorPagination;
+Regions.RegionListResponsesCursorPagination = RegionListResponsesCursorPagination;
+//# sourceMappingURL=regions.js.map
 
 /***/ }),
 
@@ -58389,9 +58667,9 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Intel = exports.Images = exports.IPs = exports.IAM = exports.HyperdriveResource = exports.Hostnames = exports.Healthchecks = exports.GoogleTagGateway = exports.Fraud = exports.Firewall = exports.Filters = exports.EmailSending = exports.EmailSecurity = exports.EmailRouting = exports.DurableObjects = exports.Diagnostics = exports.DNSFirewall = exports.DNS = exports.DDoSProtection = exports.DCVDelegation = exports.D1Resource = exports.CustomPages = exports.CustomNameservers = exports.CustomHostnames = exports.CustomCertificates = exports.ContentScanning = exports.Connectivity = exports.CloudforceOne = exports.CloudConnector = exports.ClientCertificates = exports.CertificateAuthorities = exports.Calls = exports.Cache = exports.BrowserRendering = exports.BrandProtection = exports.BotnetFeed = exports.BotManagement = exports.Billing = exports.AuditLogs = exports.Argo = exports.Alerting = exports.Addressing = exports.Accounts = exports.AbuseReports = exports.APIGateway = exports.AISecurity = exports.AISearch = exports.AIGateway = exports.AI = exports.ACM = void 0;
-exports.VulnerabilityScanner = exports.Vectorize = exports.User = exports.URLScanner = exports.URLNormalization = exports.Turnstile = exports.TokenValidation = exports.Stream = exports.Speed = exports.Spectrum = exports.Snippets = exports.SecurityTXT = exports.SecurityCenter = exports.SecretsStore = exports.SchemaValidation = exports.SSL = exports.Rulesets = exports.Rules = exports.ResourceTagging = exports.ResourceSharing = exports.RequestTracers = exports.Registrar = exports.RealtimeKit = exports.RateLimits = exports.Radar = exports.RUM = exports.R2DataCatalog = exports.R2 = exports.Queues = exports.Pipelines = exports.Pages = exports.PageShield = exports.PageRules = exports.OriginTLSClientAuth = exports.OriginPostQuantumEncryption = exports.OriginCACertificates = exports.Organizations = exports.NetworkInterconnects = exports.Memberships = exports.ManagedTransforms = exports.MagicTransit = exports.MagicNetworkMonitoring = exports.MagicCloudNetworking = exports.MTLSCertificates = exports.Logs = exports.Logpush = exports.LoadBalancers = exports.LeakedCredentialChecks = exports.KeylessCertificates = exports.KV = void 0;
-exports.Zones = exports.ZeroTrust = exports.Zaraz = exports.Workflows = exports.WorkersForPlatforms = exports.Workers = exports.Web3 = exports.WaitingRooms = void 0;
+exports.Images = exports.IPs = exports.IAM = exports.HyperdriveResource = exports.Hostnames = exports.Healthchecks = exports.GoogleTagGateway = exports.Fraud = exports.Firewall = exports.Filters = exports.EmailSending = exports.EmailSecurity = exports.EmailRouting = exports.DurableObjects = exports.Diagnostics = exports.DNSFirewall = exports.DNS = exports.DLS = exports.DDoSProtection = exports.DCVDelegation = exports.D1Resource = exports.CustomPages = exports.CustomNameservers = exports.CustomHostnames = exports.CustomCertificates = exports.ContentScanning = exports.Connectivity = exports.CloudforceOne = exports.CloudConnector = exports.ClientCertificates = exports.CertificateAuthorities = exports.Calls = exports.Cache = exports.BrowserRendering = exports.BrandProtection = exports.BotnetFeed = exports.BotManagement = exports.Billing = exports.AuditLogs = exports.Argo = exports.Alerting = exports.Addressing = exports.Accounts = exports.AbuseReports = exports.APIGateway = exports.AISecurity = exports.AISearch = exports.AIGateway = exports.AI = exports.ACM = void 0;
+exports.Vectorize = exports.User = exports.URLScanner = exports.URLNormalization = exports.Turnstile = exports.TokenValidation = exports.Stream = exports.Speed = exports.Spectrum = exports.Snippets = exports.SecurityTXT = exports.SecurityCenter = exports.SecretsStore = exports.SchemaValidation = exports.SSL = exports.Rulesets = exports.Rules = exports.ResourceTagging = exports.ResourceSharing = exports.RequestTracers = exports.Registrar = exports.RealtimeKit = exports.RateLimits = exports.Radar = exports.RUM = exports.R2DataCatalog = exports.R2 = exports.Queues = exports.Pipelines = exports.Pages = exports.PageShield = exports.PageRules = exports.OriginTLSClientAuth = exports.OriginPostQuantumEncryption = exports.OriginCACertificates = exports.Organizations = exports.NetworkInterconnects = exports.Memberships = exports.ManagedTransforms = exports.MagicTransit = exports.MagicNetworkMonitoring = exports.MagicCloudNetworking = exports.MTLSCertificates = exports.Logs = exports.Logpush = exports.LoadBalancers = exports.LeakedCredentialChecks = exports.KeylessCertificates = exports.KV = exports.Intel = void 0;
+exports.Zones = exports.ZeroTrust = exports.Zaraz = exports.Workflows = exports.WorkersForPlatforms = exports.Workers = exports.Web3 = exports.WaitingRooms = exports.VulnerabilityScanner = void 0;
 __exportStar(__nccwpck_require__(8575), exports);
 var acm_1 = __nccwpck_require__(78683);
 Object.defineProperty(exports, "ACM", ({ enumerable: true, get: function () { return acm_1.ACM; } }));
@@ -58457,6 +58735,8 @@ var dcv_delegation_1 = __nccwpck_require__(51391);
 Object.defineProperty(exports, "DCVDelegation", ({ enumerable: true, get: function () { return dcv_delegation_1.DCVDelegation; } }));
 var ddos_protection_1 = __nccwpck_require__(43235);
 Object.defineProperty(exports, "DDoSProtection", ({ enumerable: true, get: function () { return ddos_protection_1.DDoSProtection; } }));
+var dls_1 = __nccwpck_require__(11927);
+Object.defineProperty(exports, "DLS", ({ enumerable: true, get: function () { return dls_1.DLS; } }));
 var dns_1 = __nccwpck_require__(33211);
 Object.defineProperty(exports, "DNS", ({ enumerable: true, get: function () { return dns_1.DNS; } }));
 var dns_firewall_1 = __nccwpck_require__(53629);
@@ -59509,7 +59789,7 @@ const resource_1 = __nccwpck_require__(59108);
 const pagination_1 = __nccwpck_require__(30404);
 class Sinkholes extends resource_1.APIResource {
     /**
-     * List sinkholes owned by this account
+     * Lists sinkholes owned by the account for redirecting malicious traffic.
      *
      * @example
      * ```ts
@@ -66248,6 +66528,78 @@ exports.Slots = Slots;
 
 /***/ }),
 
+/***/ 67508:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Billing = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const UsageAPI = __importStar(__nccwpck_require__(59392));
+const usage_1 = __nccwpck_require__(59392);
+class Billing extends resource_1.APIResource {
+    constructor() {
+        super(...arguments);
+        this.usage = new UsageAPI.Usage(this._client);
+    }
+}
+exports.Billing = Billing;
+Billing.Usage = usage_1.Usage;
+//# sourceMappingURL=billing.js.map
+
+/***/ }),
+
+/***/ 59392:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Usage = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const core_1 = __nccwpck_require__(75487);
+class Usage extends resource_1.APIResource {
+    get(organizationId, query = {}, options) {
+        if ((0, core_1.isRequestOptions)(query)) {
+            return this.get(organizationId, {}, query);
+        }
+        return this._client.get(`/organizations/${organizationId}/billable/usage`, {
+            query,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Usage = Usage;
+//# sourceMappingURL=usage.js.map
+
+/***/ }),
+
 /***/ 83032:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -66333,7 +66685,7 @@ exports.OrganizationProfileResource = void 0;
 const resource_1 = __nccwpck_require__(59108);
 class OrganizationProfileResource extends resource_1.APIResource {
     /**
-     * Modify organization profile. (Currently in Closed Beta - see
+     * Modify organization profile. (Currently in Public Beta - see
      * https://developers.cloudflare.com/fundamentals/organizations/)
      */
     update(organizationId, body, options) {
@@ -66344,7 +66696,7 @@ class OrganizationProfileResource extends resource_1.APIResource {
         });
     }
     /**
-     * Get an organizations profile if it exists. (Currently in Closed Beta - see
+     * Get an organizations profile if it exists. (Currently in Public Beta - see
      * https://developers.cloudflare.com/fundamentals/organizations/)
      */
     get(organizationId, options) {
@@ -66391,6 +66743,8 @@ const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
 const OrganizationProfileAPI = __importStar(__nccwpck_require__(52400));
 const organization_profile_1 = __nccwpck_require__(52400);
+const BillingAPI = __importStar(__nccwpck_require__(67508));
+const billing_1 = __nccwpck_require__(67508);
 const LogsAPI = __importStar(__nccwpck_require__(77844));
 const logs_1 = __nccwpck_require__(77844);
 const pagination_1 = __nccwpck_require__(30404);
@@ -66399,16 +66753,17 @@ class Organizations extends resource_1.APIResource {
         super(...arguments);
         this.organizationProfile = new OrganizationProfileAPI.OrganizationProfileResource(this._client);
         this.logs = new LogsAPI.Logs(this._client);
+        this.billing = new BillingAPI.Billing(this._client);
     }
     /**
-     * Create a new organization for a user. (Currently in Closed Beta - see
+     * Create a new organization for a user. (Currently in Public Beta - see
      * https://developers.cloudflare.com/fundamentals/organizations/)
      */
     create(body, options) {
         return this._client.post('/organizations', { body, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Modify organization. (Currently in Closed Beta - see
+     * Modify organization. (Currently in Public Beta - see
      * https://developers.cloudflare.com/fundamentals/organizations/)
      */
     update(organizationId, body, options) {
@@ -66423,13 +66778,13 @@ class Organizations extends resource_1.APIResource {
     /**
      * Delete an organization. The organization MUST be empty before deleting. It must
      * not contain any sub-organizations, accounts, members or users. (Currently in
-     * Closed Beta - see https://developers.cloudflare.com/fundamentals/organizations/)
+     * Public Beta - see https://developers.cloudflare.com/fundamentals/organizations/)
      */
     delete(organizationId, options) {
         return this._client.delete(`/organizations/${organizationId}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Retrieve the details of a certain organization. (Currently in Closed Beta - see
+     * Retrieve the details of a certain organization. (Currently in Public Beta - see
      * https://developers.cloudflare.com/fundamentals/organizations/)
      */
     get(organizationId, options) {
@@ -66443,6 +66798,7 @@ exports.OrganizationsSinglePage = OrganizationsSinglePage;
 Organizations.OrganizationsSinglePage = OrganizationsSinglePage;
 Organizations.OrganizationProfileResource = organization_profile_1.OrganizationProfileResource;
 Organizations.Logs = logs_1.Logs;
+Organizations.Billing = billing_1.Billing;
 //# sourceMappingURL=organizations.js.map
 
 /***/ }),
@@ -69484,6 +69840,8 @@ const LocksAPI = __importStar(__nccwpck_require__(43705));
 const locks_1 = __nccwpck_require__(43705);
 const MetricsAPI = __importStar(__nccwpck_require__(41896));
 const metrics_1 = __nccwpck_require__(41896);
+const ObjectsAPI = __importStar(__nccwpck_require__(67749));
+const objects_1 = __nccwpck_require__(67749);
 const SippyAPI = __importStar(__nccwpck_require__(54546));
 const sippy_1 = __nccwpck_require__(54546);
 const DomainsAPI = __importStar(__nccwpck_require__(64746));
@@ -69498,6 +69856,7 @@ class Buckets extends resource_1.APIResource {
         this.locks = new LocksAPI.Locks(this._client);
         this.metrics = new MetricsAPI.Metrics(this._client);
         this.sippy = new SippyAPI.SippyResource(this._client);
+        this.objects = new ObjectsAPI.Objects(this._client);
     }
     /**
      * Creates a new R2 bucket.
@@ -69628,6 +69987,8 @@ Buckets.EventNotifications = event_notifications_1.EventNotifications;
 Buckets.Locks = locks_1.Locks;
 Buckets.Metrics = metrics_1.Metrics;
 Buckets.SippyResource = sippy_1.SippyResource;
+Buckets.Objects = objects_1.Objects;
+Buckets.ObjectListResponsesCursorPagination = objects_1.ObjectListResponsesCursorPagination;
 //# sourceMappingURL=buckets.js.map
 
 /***/ }),
@@ -70254,6 +70615,164 @@ class Metrics extends resource_1.APIResource {
 }
 exports.Metrics = Metrics;
 //# sourceMappingURL=metrics.js.map
+
+/***/ }),
+
+/***/ 67749:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ObjectListResponsesCursorPagination = exports.Objects = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Objects extends resource_1.APIResource {
+    /**
+     * Lists objects in an R2 bucket. Returns object metadata including key, size,
+     * etag, last modified date, HTTP metadata, and custom metadata.
+     *
+     * For most workloads, we recommend using R2's
+     * [S3-compatible API](https://developers.cloudflare.com/r2/api/s3/api/) or a
+     * [Worker with an R2 binding](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
+     * instead.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const objectListResponse of client.r2.buckets.objects.list(
+     *   'example-bucket',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(bucketName, params, options) {
+        const { account_id, jurisdiction, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/r2/buckets/${bucketName}/objects`, ObjectListResponsesCursorPagination, {
+            query,
+            ...options,
+            headers: {
+                ...(jurisdiction?.toString() != null ?
+                    { 'cf-r2-jurisdiction': jurisdiction?.toString() }
+                    : undefined),
+                ...options?.headers,
+            },
+        });
+    }
+    /**
+     * Deletes an object from an R2 bucket.
+     *
+     * For most workloads, we recommend using R2's
+     * [S3-compatible API](https://developers.cloudflare.com/r2/api/s3/api/) or a
+     * [Worker with an R2 binding](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
+     * instead.
+     *
+     * @example
+     * ```ts
+     * const object = await client.r2.buckets.objects.delete(
+     *   'example-bucket',
+     *   'path/to/my-object.txt',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    delete(bucketName, objectKey, params, options) {
+        const { account_id, jurisdiction } = params;
+        return this._client.delete(`/accounts/${account_id}/r2/buckets/${bucketName}/objects/${objectKey}`, {
+            ...options,
+            headers: {
+                ...(jurisdiction?.toString() != null ?
+                    { 'cf-r2-jurisdiction': jurisdiction?.toString() }
+                    : undefined),
+                ...options?.headers,
+            },
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Retrieves an object from an R2 bucket. Returns the object body along with
+     * metadata headers.
+     *
+     * For most workloads, we recommend using R2's
+     * [S3-compatible API](https://developers.cloudflare.com/r2/api/s3/api/) or a
+     * [Worker with an R2 binding](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
+     * instead.
+     *
+     * @example
+     * ```ts
+     * const object = await client.r2.buckets.objects.get(
+     *   'example-bucket',
+     *   'path/to/my-object.txt',
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     *
+     * const content = await object.blob();
+     * console.log(content);
+     * ```
+     */
+    get(bucketName, objectKey, params, options) {
+        const { account_id, jurisdiction, 'If-Modified-Since': ifModifiedSince, 'If-None-Match': ifNoneMatch, } = params;
+        return this._client.get(`/accounts/${account_id}/r2/buckets/${bucketName}/objects/${objectKey}`, {
+            ...options,
+            headers: {
+                Accept: 'application/octet-stream',
+                ...(jurisdiction?.toString() != null ?
+                    { 'cf-r2-jurisdiction': jurisdiction?.toString() }
+                    : undefined),
+                ...(ifModifiedSince != null ? { 'If-Modified-Since': ifModifiedSince } : undefined),
+                ...(ifNoneMatch != null ? { 'If-None-Match': ifNoneMatch } : undefined),
+                ...options?.headers,
+            },
+            __binaryResponse: true,
+        });
+    }
+    /**
+     * Uploads an object to an R2 bucket. The object body is provided as the request
+     * body. Returns metadata about the uploaded object.
+     *
+     * The maximum upload size for this endpoint is 300 MB. For most workloads, we
+     * recommend using R2's
+     * [S3-compatible API](https://developers.cloudflare.com/r2/api/s3/api/) or a
+     * [Worker with an R2 binding](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
+     * instead.
+     *
+     * @example
+     * ```ts
+     * const response = await client.r2.buckets.objects.upload(
+     *   'example-bucket',
+     *   'path/to/my-object.txt',
+     *   fs.createReadStream('path/to/file'),
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    upload(bucketName, objectKey, body, params, options) {
+        const { account_id, jurisdiction, 'cf-r2-storage-class': cfR2StorageClass } = params;
+        return this._client.put(`/accounts/${account_id}/r2/buckets/${bucketName}/objects/${objectKey}`, {
+            body: body,
+            ...options,
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                ...(jurisdiction?.toString() != null ?
+                    { 'cf-r2-jurisdiction': jurisdiction?.toString() }
+                    : undefined),
+                ...(cfR2StorageClass?.toString() != null ?
+                    { 'cf-r2-storage-class': cfR2StorageClass?.toString() }
+                    : undefined),
+                ...options?.headers,
+            },
+            __binaryRequest: true,
+        })._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.Objects = Objects;
+class ObjectListResponsesCursorPagination extends pagination_1.CursorPagination {
+}
+exports.ObjectListResponsesCursorPagination = ObjectListResponsesCursorPagination;
+Objects.ObjectListResponsesCursorPagination = ObjectListResponsesCursorPagination;
+//# sourceMappingURL=objects.js.map
 
 /***/ }),
 
@@ -80607,6 +81126,21 @@ class Stores extends resource_1.APIResource {
             ...options,
         })._thenUnwrap((obj) => obj.result);
     }
+    /**
+     * Returns details of a single store
+     *
+     * @example
+     * ```ts
+     * const store = await client.secretsStore.stores.get(
+     *   '023e105f4ecef8ad9ca31a8372d0c353',
+     *   { account_id: '985e105f4ecef8ad9ca31a8372d0c353' },
+     * );
+     * ```
+     */
+    get(storeId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/secrets_store/stores/${storeId}`, options)._thenUnwrap((obj) => obj.result);
+    }
 }
 exports.Stores = Stores;
 class StoreListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
@@ -87898,6 +88432,34 @@ class Secrets extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}/secrets/${secretName}`, { query: { url_encoded }, ...options })._thenUnwrap((obj) => obj.result);
     }
     /**
+     * Create, update, or delete multiple secrets on a script in a single operation
+     * using JSON Merge Patch (RFC 7396).
+     *
+     * Usage:
+     *
+     * - To create or update a secret, set its value to a secret object.
+     * - To delete a secret, set its value to `null`.
+     * - Secrets not included in the request are left unchanged.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.workersForPlatforms.dispatch.namespaces.scripts.secrets.bulkUpdate(
+     *     'my-dispatch-namespace',
+     *     'this-is_my_script-01',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    bulkUpdate(dispatchNamespace, scriptName, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${scriptName}/secrets-bulk`, {
+            body,
+            ...options,
+            headers: { 'Content-Type': 'application/merge-patch+json', ...options?.headers },
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
      * Get a given secret binding (value omitted) on a script uploaded to a Workers for
      * Platforms namespace.
      *
@@ -88823,6 +89385,8 @@ exports.Observability = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const DestinationsAPI = __importStar(__nccwpck_require__(89993));
 const destinations_1 = __nccwpck_require__(89993);
+const QueriesAPI = __importStar(__nccwpck_require__(54326));
+const queries_1 = __nccwpck_require__(54326);
 const TelemetryAPI = __importStar(__nccwpck_require__(59929));
 const telemetry_1 = __nccwpck_require__(59929);
 class Observability extends resource_1.APIResource {
@@ -88830,6 +89394,7 @@ class Observability extends resource_1.APIResource {
         super(...arguments);
         this.telemetry = new TelemetryAPI.Telemetry(this._client);
         this.destinations = new DestinationsAPI.Destinations(this._client);
+        this.queries = new QueriesAPI.Queries(this._client);
     }
 }
 exports.Observability = Observability;
@@ -88838,7 +89403,68 @@ Observability.TelemetryKeysResponsesSinglePage = telemetry_1.TelemetryKeysRespon
 Observability.TelemetryValuesResponsesSinglePage = telemetry_1.TelemetryValuesResponsesSinglePage;
 Observability.Destinations = destinations_1.Destinations;
 Observability.DestinationListResponsesSinglePage = destinations_1.DestinationListResponsesSinglePage;
+Observability.Queries = queries_1.Queries;
+Observability.QueryListResponsesSinglePage = queries_1.QueryListResponsesSinglePage;
 //# sourceMappingURL=observability.js.map
+
+/***/ }),
+
+/***/ 54326:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.QueryListResponsesSinglePage = exports.Queries = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class Queries extends resource_1.APIResource {
+    /**
+     * Persist query for later use.
+     *
+     * @example
+     * ```ts
+     * const query =
+     *   await client.workers.observability.queries.create({
+     *     account_id: 'account_id',
+     *     description: 'Query description',
+     *     name: 'x',
+     *     parameters: {},
+     *   });
+     * ```
+     */
+    create(params, options) {
+        const { account_id, ...body } = params;
+        return this._client.post(`/accounts/${account_id}/workers/observability/queries`, {
+            body,
+            ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * List saved queries.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const queryListResponse of client.workers.observability.queries.list(
+     *   { account_id: 'account_id' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/workers/observability/queries`, QueryListResponsesSinglePage, { query, ...options });
+    }
+}
+exports.Queries = Queries;
+class QueryListResponsesSinglePage extends pagination_1.SinglePage {
+}
+exports.QueryListResponsesSinglePage = QueryListResponsesSinglePage;
+Queries.QueryListResponsesSinglePage = QueryListResponsesSinglePage;
+//# sourceMappingURL=queries.js.map
 
 /***/ }),
 
@@ -89693,6 +90319,33 @@ class Secrets extends resource_1.APIResource {
         return this._client.delete(`/accounts/${account_id}/workers/scripts/${scriptName}/secrets/${secretName}`, {
             query: { url_encoded },
             ...options,
+        })._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Create, update, or delete multiple secrets on a script in a single operation
+     * using JSON Merge Patch (RFC 7396).
+     *
+     * Usage:
+     *
+     * - To create or update a secret, set its value to a secret object.
+     * - To delete a secret, set its value to `null`.
+     * - Secrets not included in the request are left unchanged.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.workers.scripts.secrets.bulkUpdate(
+     *     'this-is_my_script-01',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    bulkUpdate(scriptName, params, options) {
+        const { account_id, ...body } = params;
+        return this._client.patch(`/accounts/${account_id}/workers/scripts/${scriptName}/secrets-bulk`, {
+            body,
+            ...options,
+            headers: { 'Content-Type': 'application/merge-patch+json', ...options?.headers },
         })._thenUnwrap((obj) => obj.result);
     }
     /**
@@ -90861,6 +91514,8 @@ const KeysAPI = __importStar(__nccwpck_require__(34731));
 const keys_1 = __nccwpck_require__(34731);
 const PoliciesAPI = __importStar(__nccwpck_require__(53821));
 const policies_1 = __nccwpck_require__(53821);
+const SAMLCertificatesAPI = __importStar(__nccwpck_require__(19695));
+const saml_certificates_1 = __nccwpck_require__(19695);
 const ServiceTokensAPI = __importStar(__nccwpck_require__(81555));
 const service_tokens_1 = __nccwpck_require__(81555);
 const TagsAPI = __importStar(__nccwpck_require__(55194));
@@ -90882,6 +91537,7 @@ class Access extends resource_1.APIResource {
         super(...arguments);
         this.aiControls = new AIControlsAPI.AIControls(this._client);
         this.gatewayCA = new GatewayCAAPI.GatewayCA(this._client);
+        this.samlCertificates = new SAMLCertificatesAPI.SAMLCertificates(this._client);
         this.infrastructure = new InfrastructureAPI.Infrastructure(this._client);
         this.applications = new ApplicationsAPI.Applications(this._client);
         this.certificates = new CertificatesAPI.Certificates(this._client);
@@ -90900,6 +91556,8 @@ exports.Access = Access;
 Access.AIControls = ai_controls_1.AIControls;
 Access.GatewayCA = gateway_ca_1.GatewayCA;
 Access.GatewayCAListResponsesSinglePage = gateway_ca_1.GatewayCAListResponsesSinglePage;
+Access.SAMLCertificates = saml_certificates_1.SAMLCertificates;
+Access.SAMLCertificateListResponsesV4PagePaginationArray = saml_certificates_1.SAMLCertificateListResponsesV4PagePaginationArray;
 Access.Infrastructure = infrastructure_1.Infrastructure;
 Access.Applications = applications_1.Applications;
 Access.ApplicationListResponsesV4PagePaginationArray = applications_1.ApplicationListResponsesV4PagePaginationArray;
@@ -91239,7 +91897,8 @@ class Servers extends resource_1.APIResource {
         return this._client.get(`/accounts/${account_id}/access/ai-controls/mcp/servers/${id}`, options)._thenUnwrap((obj) => obj.result);
     }
     /**
-     * Syncs an MCP server's tool catalog with the portal.
+     * Syncs an MCP server's capabilities and returns the updated server state,
+     * including any connection errors.
      *
      * @example
      * ```ts
@@ -93286,6 +93945,113 @@ class PolicyListResponsesV4PagePaginationArray extends pagination_1.V4PagePagina
 exports.PolicyListResponsesV4PagePaginationArray = PolicyListResponsesV4PagePaginationArray;
 Policies.PolicyListResponsesV4PagePaginationArray = PolicyListResponsesV4PagePaginationArray;
 //# sourceMappingURL=policies.js.map
+
+/***/ }),
+
+/***/ 19695:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SAMLCertificateListResponsesV4PagePaginationArray = exports.SAMLCertificates = void 0;
+const resource_1 = __nccwpck_require__(59108);
+const pagination_1 = __nccwpck_require__(30404);
+class SAMLCertificates extends resource_1.APIResource {
+    /**
+     * Returns a paginated list of the organization's SAML encryption certificate sets.
+     * Each certificate set includes the current and (if present) previous
+     * certificates.
+     *
+     * @example
+     * ```ts
+     * // Automatically fetches more pages as needed.
+     * for await (const samlCertificateListResponse of client.zeroTrust.access.samlCertificates.list(
+     *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     * )) {
+     *   // ...
+     * }
+     * ```
+     */
+    list(params, options) {
+        const { account_id, ...query } = params;
+        return this._client.getAPIList(`/accounts/${account_id}/access/saml_certificates`, SAMLCertificateListResponsesV4PagePaginationArray, { query, ...options });
+    }
+    /**
+     * Retrieves a specific SAML encryption certificate set by its UID, including both
+     * current and previous certificates if available.
+     *
+     * @example
+     * ```ts
+     * const samlCertificate =
+     *   await client.zeroTrust.access.samlCertificates.get(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    get(samlCERTSetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/access/saml_certificates/${samlCERTSetId}`, options)._thenUnwrap((obj) => obj.result);
+    }
+    /**
+     * Downloads the current SAML encryption certificate's public key in PEM format for
+     * the specified certificate set. This endpoint is useful for providing the
+     * certificate to Identity Providers for SAML assertion encryption configuration.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.zeroTrust.access.samlCertificates.getPem(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     *
+     * const content = await response.blob();
+     * console.log(content);
+     * ```
+     */
+    getPem(samlCERTSetId, params, options) {
+        const { account_id } = params;
+        return this._client.get(`/accounts/${account_id}/access/saml_certificates/${samlCERTSetId}/pem`, {
+            ...options,
+            headers: { Accept: 'application/x-pem-file', ...options?.headers },
+            __binaryResponse: true,
+        });
+    }
+    /**
+     * Rotates the SAML encryption certificates within the specified certificate set.
+     * This generates a new certificate and moves the current certificate to the
+     * previous slot. If a previous certificate exists, it will be deactivated and
+     * removed.
+     *
+     * This endpoint ensures zero-downtime rotation by maintaining both current and
+     * previous certificates during the transition period, allowing IdPs time to update
+     * their configurations. Automated rotation happens 30 days before a current
+     * certificate's expiration.
+     *
+     * @example
+     * ```ts
+     * const response =
+     *   await client.zeroTrust.access.samlCertificates.rotate(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    rotate(samlCERTSetId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/access/saml_certificates/${samlCERTSetId}/rotate`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.SAMLCertificates = SAMLCertificates;
+class SAMLCertificateListResponsesV4PagePaginationArray extends pagination_1.V4PagePaginationArray {
+}
+exports.SAMLCertificateListResponsesV4PagePaginationArray = SAMLCertificateListResponsesV4PagePaginationArray;
+SAMLCertificates.SAMLCertificateListResponsesV4PagePaginationArray =
+    SAMLCertificateListResponsesV4PagePaginationArray;
+//# sourceMappingURL=saml-certificates.js.map
 
 /***/ }),
 
@@ -99890,6 +100656,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.IdentityProviderListResponsesV4PagePaginationArray = exports.IdentityProviders = void 0;
 const resource_1 = __nccwpck_require__(59108);
 const core_1 = __nccwpck_require__(75487);
+const SAMLCertificateAPI = __importStar(__nccwpck_require__(97801));
+const saml_certificate_1 = __nccwpck_require__(97801);
 const SCIMAPI = __importStar(__nccwpck_require__(96829));
 const scim_1 = __nccwpck_require__(96829);
 const error_1 = __nccwpck_require__(47952);
@@ -99898,6 +100666,7 @@ class IdentityProviders extends resource_1.APIResource {
     constructor() {
         super(...arguments);
         this.scim = new SCIMAPI.SCIM(this._client);
+        this.samlCertificate = new SAMLCertificateAPI.SAMLCertificate(this._client);
     }
     /**
      * Adds a new identity provider to Access.
@@ -100045,7 +100814,52 @@ exports.IdentityProviderListResponsesV4PagePaginationArray = IdentityProviderLis
 IdentityProviders.IdentityProviderListResponsesV4PagePaginationArray =
     IdentityProviderListResponsesV4PagePaginationArray;
 IdentityProviders.SCIM = scim_1.SCIM;
+IdentityProviders.SAMLCertificate = saml_certificate_1.SAMLCertificate;
 //# sourceMappingURL=identity-providers.js.map
+
+/***/ }),
+
+/***/ 97801:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SAMLCertificate = void 0;
+const resource_1 = __nccwpck_require__(59108);
+class SAMLCertificate extends resource_1.APIResource {
+    /**
+     * Creates a new SAML encryption certificate set and assigns it to the specified
+     * SAML Identity Provider. This endpoint is idempotent - if the IdP already has a
+     * certificate set assigned, the existing certificate set is returned with a 200
+     * status.
+     *
+     * **Workflow for enabling SAML encryption:**
+     *
+     * 1. Call this endpoint to create and assign a certificate set to the IdP
+     * 2. Update the IdP configuration (PUT `/identity_providers/{id}`) with:
+     *    - `config.enable_encryption: true`
+     *    - `saml_certificate_set_id: <uid from step 1>`
+     * 3. Configure the certificate's public key in your external SAML Identity
+     *    Provider
+     *
+     * @example
+     * ```ts
+     * const samlCertificate =
+     *   await client.zeroTrust.identityProviders.samlCertificate.create(
+     *     'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
+     *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+     *   );
+     * ```
+     */
+    create(identityProviderId, params, options) {
+        const { account_id } = params;
+        return this._client.post(`/accounts/${account_id}/access/identity_providers/${identityProviderId}/saml_certificate`, options)._thenUnwrap((obj) => obj.result);
+    }
+}
+exports.SAMLCertificate = SAMLCertificate;
+//# sourceMappingURL=saml-certificate.js.map
 
 /***/ }),
 
@@ -103361,7 +104175,7 @@ const addFormValueJson = async (form, key, value) => {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.VERSION = void 0;
-exports.VERSION = '6.2.0'; // x-release-please-version
+exports.VERSION = '6.3.0'; // x-release-please-version
 //# sourceMappingURL=version.js.map
 
 /***/ }),
