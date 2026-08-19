@@ -27741,6 +27741,7 @@ const ai_security_1 = __nccwpck_require__(5387);
 const ai_1 = __nccwpck_require__(61405);
 const aisearch_1 = __nccwpck_require__(10461);
 const alerting_1 = __nccwpck_require__(13361);
+const analytics_query_1 = __nccwpck_require__(32387);
 const api_gateway_1 = __nccwpck_require__(47963);
 const argo_1 = __nccwpck_require__(13995);
 const audit_logs_1 = __nccwpck_require__(28779);
@@ -27810,12 +27811,14 @@ const page_rules_1 = __nccwpck_require__(46291);
 const page_shield_1 = __nccwpck_require__(95227);
 const pages_1 = __nccwpck_require__(33147);
 const pipelines_1 = __nccwpck_require__(39595);
+const precursor_1 = __nccwpck_require__(10387);
 const queues_1 = __nccwpck_require__(85041);
 const r2_data_catalog_1 = __nccwpck_require__(73319);
 const r2_1 = __nccwpck_require__(69689);
 const radar_1 = __nccwpck_require__(55819);
 const rate_limits_1 = __nccwpck_require__(57307);
 const realtime_kit_1 = __nccwpck_require__(38073);
+const registrar_sandbox_1 = __nccwpck_require__(80167);
 const registrar_1 = __nccwpck_require__(36611);
 const request_tracers_1 = __nccwpck_require__(2311);
 const resource_sharing_1 = __nccwpck_require__(21771);
@@ -28392,6 +28395,7 @@ var Cloudflare = /* @__PURE__ */ (() => {
             this.cache = new API.Cache(this);
             this.ssl = new API.SSL(this);
             this.acm = new API.ACM(this);
+            this.analyticsQuery = new API.AnalyticsQuery(this);
             this.argo = new API.Argo(this);
             this.certificateAuthorities = new API.CertificateAuthorities(this);
             this.clientCertificates = new API.ClientCertificates(this);
@@ -28442,7 +28446,208 @@ var Cloudflare = /* @__PURE__ */ (() => {
             this.networkInterconnects = new API.NetworkInterconnects(this);
             this.mtlsCertificates = new API.MTLSCertificates(this);
             this.pages = new API.Pages(this);
+            /**
+             * Registrar API for searching, checking, registering, and managing domains through Cloudflare Registrar.
+             *
+             * ## Prerequisites
+             *
+             * Before using this API, ensure:
+             *
+             * 1. **Cloudflare account** — the caller must have a valid Cloudflare account.
+             * 2. **Billing profile** — the account must have a billing profile with a valid,
+             *   current default payment method (credit card or other accepted method).
+             *   This cannot be set up via API — the account owner must configure billing
+             *   at `https://dash.cloudflare.com/{account_id}/billing/payment-info` before
+             *   calling `POST /registrations`.
+             * 3. **API authentication** — use an API token or API key with the appropriate
+             *   Registrar permissions for the operations you are calling.
+             *
+             * ## Terminology: domain extension
+             *
+             * Throughout this API, "extension" refers to the domain extension part of a fully
+             * qualified domain name — the portion after the registrable label. For example,
+             * in `example.co.uk`, the extension is `co.uk` (not just `uk`). This covers both
+             * top-level domains like `com` and multi-level extensions like `co.uk`. This is
+             * distinct from other uses of the word "extension" (e.g., EPP extensions).
+             *
+             * ## Supported extensions
+             *
+             * This API supports programmatic registration for all extensions supported by
+             * the dashboard experience, with the following exceptions:
+             *
+             * `giving`, `mom`, `inc`, `lol`, `sh`, `link`, `cc`, `new`
+             *
+             * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions
+             * listed above can be registered at `https://dash.cloudflare.com/{account_id}/domains/registrations`.
+             *
+             * ## Typical workflow
+             *
+             * 1. **Search** — call `GET /domain-search?q={keyword}` to discover available domains.
+             * 2. **Check** — call `POST /domain-check` with candidate domains to verify real-time
+             *   availability and pricing.
+             * 3. **Review the response** — if `registrable: false`, inspect `reason` to
+             *   understand whether the domain is unavailable, the extension is not supported
+             *   by this API, the extension is not supported by Cloudflare Registrar at all,
+             *   or the extension's registry has frozen new registrations.
+             * 4. **Handle premium domains** — if `tier: premium`, premium registration is
+             *   not currently supported by this API. Surface the premium pricing to the user,
+             *   but do not proceed to `POST /registrations` for that domain.
+             * 5. **Observe the registration schema** — call `GET /extensions/:extension_name`
+             *   to discover the required values for registering this extension.
+             * 6. **Register** — call `POST /registrations` with the chosen domain name for
+             *   supported non-premium registrations.
+             * 7. **Confirm completion** — if the response is `201 Created`, registration
+             *   completed within the default timeout and no polling is needed.
+             * 8. **Poll when needed** — if the response is `202 Accepted`, poll
+             *   `links.self` from the workflow response.
+             * 9. **Stop for user action** — if `state: action_required`, stop polling and
+             *   surface `context.action` to the user.
+             *   The workflow will not resolve on its own.
+             * 10. **Continue when blocked** — if `state: blocked`, continue polling and
+             *   inform the user that a third party, such as the extension registry or losing
+             *   registrar, is delaying progress.
+             * 11. **Review failures before retrying** — if `state: failed`, review
+             *   `error.code` and `error.message`, then decide whether user action or a new
+             *   Check call is needed.
+             *
+             * **All successful domain registrations are non-refundable.** Once the registration
+             * workflow completes with `state: succeeded`, the charge cannot be reversed.
+             * Confirm pricing and domain choice with the user before calling `POST /registrations`.
+             *
+             * ## Default behavior for mutating operations
+             *
+             * By default, mutating operations such as create and update hold the connection
+             * for a bounded, server-defined amount of time while the operation completes.
+             * In most cases, the response contains a completed workflow status and no
+             * polling is required.
+             *
+             * - **Completed within the synchronous wait window:** Returns `201` (create)
+             * or `200` (update) with a `workflow_status` where `state: succeeded` and
+             * `completed: true`.
+             * - **Still processing after the synchronous wait window:** Returns
+             * `202 Accepted` with a `workflow_status` where `completed: false`. Use
+             * the `links.self` URL to poll for completion.
+             *
+             * ## Non-blocking mode
+             *
+             * To receive an immediate `202 Accepted` response without waiting, send the
+             * `Prefer: respond-async` request header (RFC 7240). The server will acknowledge
+             * it with a `Preference-Applied: respond-async` response header.
+             *
+             * ## Polling
+             *
+             * When the response is `202`, poll the workflow status endpoint indicated by
+             * `links.self` in the response body until the workflow reaches a terminal
+             * state or requires user action.
+             */
             this.registrar = new API.Registrar(this);
+            /**
+             * Use the Registrar Sandbox API to test domain search, availability checks,
+             * registration, and domain management flows without buying real domains.
+             *
+             * **This API is a test environment for the production Registrar API.**
+             *
+             * ## Prerequisites
+             *
+             * Before using this API, make sure you have:
+             *
+             * 1. **Cloudflare account** — the caller must have a valid Cloudflare account.
+             * 2. **API authentication** — create an API token with Registrar Sandbox permissions.
+             *
+             * ## How the Sandbox API differs from the production Registrar API
+             *
+             * Because the Sandbox API is intended for testing, it behaves differently from
+             * the production Registrar API in a few important ways:
+             *
+             * 1. **No billing** — you will not be charged real money for purchasing a domain.
+             * 2. **No real domains** — purchased domains are test records and will not be
+             *   reachable on the Internet.
+             * 3. **No DNS zones** — purchasing a domain does not create a zone resource.
+             * 4. **No Registration Express Mode** — you must provide full contact data.
+             *
+             * Sandbox purchases are still persisted. If you purchase a domain in the sandbox,
+             * that domain will not be available for others to purchase in the sandbox.
+             *
+             * ## Terminology: domain extension
+             *
+             * Throughout this API, "extension" refers to the domain extension part of a fully
+             * qualified domain name — the portion after the registrable label. For example,
+             * in `example.co.uk`, the extension is `co.uk` (not just `uk`). This covers both
+             * top-level domains like `com` and multi-level extensions like `co.uk`. This is
+             * distinct from other uses of the word "extension" (e.g., EPP extensions).
+             *
+             * ## Supported extensions
+             *
+             * The Sandbox API currently supports programmatic registration for these
+             * extensions:
+             *
+             * `com`, `net`
+             *
+             * The production Registrar API supports 40+ extensions.
+             *
+             * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions
+             * not listed above can be registered at `https://dash.cloudflare.com/{account_id}/domains/registrations`.
+             *
+             * ## Typical workflow
+             *
+             * 1. **Search** — call `GET /domain-search?q={keyword}` to discover available domains.
+             * 2. **Check** — call `POST /domain-check` with candidate domains to verify real-time
+             *   availability and pricing.
+             * 3. **Review the response** — if `registrable: false`, inspect `reason` to
+             *   understand whether the domain is unavailable, the extension is not supported
+             *   by this API, the extension is not supported by Cloudflare Registrar at all,
+             *   or the extension's registry has frozen new registrations.
+             * 4. **Handle premium domains** — if `tier: premium`, premium registration is
+             *   not currently supported by this API. The Sandbox API currently supports
+             *   only `com` and `net`, which do not have premium registrations, but clients
+             *   should still handle this response for consistency with the production
+             *   Registrar API. Surface the premium pricing to the user, but do not proceed
+             *   to `POST /registrations` for that domain.
+             * 5. **Observe the registration schema** — call `GET /extensions/:extension_name`
+             *   to discover the required values for registering this extension.
+             * 6. **Register** — call `POST /registrations` with the chosen domain name for
+             *   supported non-premium registrations.
+             * 7. **Confirm completion** — if the response is `201 Created`, registration
+             *   completed within the default timeout and no polling is needed.
+             * 8. **Poll when needed** — if the response is `202 Accepted`, poll
+             *   `links.self` from the workflow response.
+             * 9. **Stop for user action** — if `state: action_required`, stop polling and
+             *   surface `context.action` to the user.
+             *   The workflow will not resolve on its own.
+             * 10. **Continue when blocked** — if `state: blocked`, continue polling and
+             *   inform the user that a third party, such as the extension registry or losing
+             *   registrar, is delaying progress.
+             * 11. **Review failures before retrying** — if `state: failed`, review
+             *   `error.code` and `error.message`, then decide whether user action or a new
+             *   Check call is needed.
+             *
+             * ## Default behavior for mutating operations
+             *
+             * By default, mutating operations such as create and update hold the connection
+             * for a bounded, server-defined amount of time while the operation completes.
+             * In most cases, the response contains a completed workflow status and no
+             * polling is required.
+             *
+             * - **Completed within the synchronous wait window:** Returns `201` (create)
+             * or `200` (update) with a `workflow_status` where `state: succeeded` and
+             * `completed: true`.
+             * - **Still processing after the synchronous wait window:** Returns
+             * `202 Accepted` with a `workflow_status` where `completed: false`. Use
+             * the `links.self` URL to poll for completion.
+             *
+             * ## Non-blocking mode
+             *
+             * To receive an immediate `202 Accepted` response without waiting, send the
+             * `Prefer: respond-async` request header (RFC 7240). The server will acknowledge
+             * it with a `Preference-Applied: respond-async` response header.
+             *
+             * ## Polling
+             *
+             * When the response is `202`, poll the workflow status endpoint indicated by
+             * `links.self` in the response body until the workflow reaches a terminal
+             * state or requires user action.
+             */
+            this.registrarSandbox = new API.RegistrarSandbox(this);
             this.requestTracers = new API.RequestTracers(this);
             this.rules = new API.Rules(this);
             this.stream = new API.Stream(this);
@@ -28462,6 +28667,7 @@ var Cloudflare = /* @__PURE__ */ (() => {
             this.radar = new API.Radar(this);
             this.botManagement = new API.BotManagement(this);
             this.fraud = new API.Fraud(this);
+            this.precursor = new API.Precursor(this);
             this.originPostQuantumEncryption = new API.OriginPostQuantumEncryption(this);
             this.originTLSComplianceModes = new API.OriginTLSComplianceModes(this);
             this.googleTagGateway = new API.GoogleTagGateway(this);
@@ -28528,6 +28734,7 @@ var Cloudflare = /* @__PURE__ */ (() => {
     Cloudflare.Cache = cache_1.Cache;
     Cloudflare.SSL = ssl_1.SSL;
     Cloudflare.ACM = acm_1.ACM;
+    Cloudflare.AnalyticsQuery = analytics_query_1.AnalyticsQuery;
     Cloudflare.Argo = argo_1.Argo;
     Cloudflare.CertificateAuthorities = certificate_authorities_1.CertificateAuthorities;
     Cloudflare.ClientCertificates = client_certificates_1.ClientCertificates;
@@ -28579,6 +28786,7 @@ var Cloudflare = /* @__PURE__ */ (() => {
     Cloudflare.MTLSCertificates = mtls_certificates_1.MTLSCertificates;
     Cloudflare.Pages = pages_1.Pages;
     Cloudflare.Registrar = registrar_1.Registrar;
+    Cloudflare.RegistrarSandbox = registrar_sandbox_1.RegistrarSandbox;
     Cloudflare.RequestTracers = request_tracers_1.RequestTracers;
     Cloudflare.Rules = rules_1.Rules;
     Cloudflare.Stream = stream_1.Stream;
@@ -28598,6 +28806,7 @@ var Cloudflare = /* @__PURE__ */ (() => {
     Cloudflare.Radar = radar_1.Radar;
     Cloudflare.BotManagement = bot_management_1.BotManagement;
     Cloudflare.Fraud = fraud_1.Fraud;
+    Cloudflare.Precursor = precursor_1.Precursor;
     Cloudflare.OriginPostQuantumEncryption = origin_post_quantum_encryption_1.OriginPostQuantumEncryption;
     Cloudflare.OriginTLSComplianceModes = origin_tls_compliance_modes_1.OriginTLSComplianceModes;
     Cloudflare.GoogleTagGateway = google_tag_gateway_1.GoogleTagGateway;
@@ -30894,7 +31103,37 @@ const path_1 = __nccwpck_require__(91121);
 var BaseAbuseReports = /* @__PURE__ */ (() => {
     class BaseAbuseReports extends resource_1.APIResource {
         /**
-         * Submit the Abuse Report of a particular type
+         * Submit an abuse report of a particular type.
+         *
+         * Requires the abuse-reports entitlement on the account (Enterprise accounts have
+         * it by default; other accounts must request access) and an API token with the
+         * `Account > Abuse Reports > Edit` permission. If the account is not entitled, the
+         * request is rejected with an HTTP `401` response (see below).
+         *
+         * @example
+         * ```ts
+         * const abuseReport = await client.abuseReports.create(
+         *   'report_param',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     act: 'abuse_dmca',
+         *     address1: 'x',
+         *     agent_name: 'x',
+         *     agree: 1,
+         *     city: 'x',
+         *     country: 'x',
+         *     email: 'email',
+         *     email2: 'email2',
+         *     host_notification: 'send',
+         *     name: 'x',
+         *     original_work: 'x',
+         *     owner_notification: 'send',
+         *     signature: 'signature',
+         *     state: 'x',
+         *     urls: 'urls',
+         *   },
+         * );
+         * ```
          */
         create(reportParam, params, options) {
             const { account_id, ...body } = params;
@@ -30905,6 +31144,16 @@ var BaseAbuseReports = /* @__PURE__ */ (() => {
         }
         /**
          * List the abuse reports for a given account
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const abuseReportListResponse of client.abuseReports.list(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
          */
         list(params, options) {
             const { account_id, ...query } = params;
@@ -30912,6 +31161,14 @@ var BaseAbuseReports = /* @__PURE__ */ (() => {
         }
         /**
          * Retrieve the details of an abuse report.
+         *
+         * @example
+         * ```ts
+         * const abuseReport = await client.abuseReports.get(
+         *   'report_param',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
          */
         get(reportParam, params, options) {
             const { account_id } = params;
@@ -30953,6 +31210,17 @@ var BaseMitigations = /* @__PURE__ */ (() => {
     class BaseMitigations extends resource_1.APIResource {
         /**
          * List mitigations done to remediate the abuse report.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const mitigationListResponse of client.abuseReports.mitigations.list(
+         *   'report_id',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
          */
         list(reportID, params, options) {
             const { account_id, ...query } = params;
@@ -30960,6 +31228,17 @@ var BaseMitigations = /* @__PURE__ */ (() => {
         }
         /**
          * Request a review for mitigations on an account.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const mitigationReviewResponse of client.abuseReports.mitigations.review(
+         *   'report_id',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
          */
         review(reportID, params, options) {
             const { account_id, ...body } = params;
@@ -30998,6 +31277,8 @@ const SubscriptionsAPI = tslib_1.__importStar(__nccwpck_require__(95867));
 const subscriptions_1 = __nccwpck_require__(95867);
 const LogsAPI = tslib_1.__importStar(__nccwpck_require__(25682));
 const logs_1 = __nccwpck_require__(25682);
+const SpeedSettingsAPI = tslib_1.__importStar(__nccwpck_require__(65938));
+const speed_settings_1 = __nccwpck_require__(65938);
 const TokensAPI = tslib_1.__importStar(__nccwpck_require__(30676));
 const tokens_1 = __nccwpck_require__(30676);
 const pagination_1 = __nccwpck_require__(86242);
@@ -31092,6 +31373,7 @@ var Accounts = /* @__PURE__ */ (() => {
             this.subscriptions = new SubscriptionsAPI.Subscriptions(this._client);
             this.tokens = new TokensAPI.Tokens(this._client);
             this.logs = new LogsAPI.Logs(this._client);
+            this.speedSettings = new SpeedSettingsAPI.SpeedSettings(this._client);
         }
     }
     Accounts.Members = members_1.Members;
@@ -31104,6 +31386,8 @@ var Accounts = /* @__PURE__ */ (() => {
     Accounts.BaseTokens = tokens_1.BaseTokens;
     Accounts.Logs = logs_1.Logs;
     Accounts.BaseLogs = logs_1.BaseLogs;
+    Accounts.SpeedSettings = speed_settings_1.SpeedSettings;
+    Accounts.BaseSpeedSettings = speed_settings_1.BaseSpeedSettings;
     return Accounts;
 })();
 exports.Accounts = Accounts;
@@ -31373,19 +31657,14 @@ const resource_1 = __nccwpck_require__(85550);
 const pagination_1 = __nccwpck_require__(86242);
 const path_1 = __nccwpck_require__(91121);
 var BaseRoles = /* @__PURE__ */ (() => {
+    /**
+     * @deprecated Please use the [Account Permission Groups](https://developers.cloudflare.com/api/resources/iam/subresources/permission_groups/) API instead
+     */
     class BaseRoles extends resource_1.APIResource {
         /**
          * Get all available roles for an account.
          *
-         * @example
-         * ```ts
-         * // Automatically fetches more pages as needed.
-         * for await (const role of client.accounts.roles.list({
-         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-         * })) {
-         *   // ...
-         * }
-         * ```
+         * @deprecated Use /accounts/{account_id}/iam/permission_groups instead.
          */
         list(params, options) {
             const { account_id, ...query } = params;
@@ -31397,13 +31676,7 @@ var BaseRoles = /* @__PURE__ */ (() => {
         /**
          * Get information about a specific role for an account.
          *
-         * @example
-         * ```ts
-         * const role = await client.accounts.roles.get(
-         *   '3536bcfad5faccb999b47003c79917fb',
-         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
-         * );
-         * ```
+         * @deprecated Use /accounts/{account_id}/iam/permission_groups/{permission_group_id} instead.
          */
         get(roleID, params, options) {
             const { account_id } = params;
@@ -31417,10 +31690,99 @@ var BaseRoles = /* @__PURE__ */ (() => {
     return BaseRoles;
 })();
 exports.BaseRoles = BaseRoles;
+/**
+ * @deprecated Please use the [Account Permission Groups](https://developers.cloudflare.com/api/resources/iam/subresources/permission_groups/) API instead
+ */
 class Roles extends BaseRoles {
 }
 exports.Roles = Roles;
 //# sourceMappingURL=roles.js.map
+
+/***/ }),
+
+/***/ 65938:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SpeedSettings = exports.BaseSpeedSettings = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const TransformationsAPI = tslib_1.__importStar(__nccwpck_require__(39235));
+const transformations_1 = __nccwpck_require__(39235);
+var BaseSpeedSettings = /* @__PURE__ */ (() => {
+    class BaseSpeedSettings extends resource_1.APIResource {
+    }
+    BaseSpeedSettings._key = Object.freeze([
+        'accounts',
+        'speedSettings',
+    ]);
+    return BaseSpeedSettings;
+})();
+exports.BaseSpeedSettings = BaseSpeedSettings;
+var SpeedSettings = /* @__PURE__ */ (() => {
+    class SpeedSettings extends BaseSpeedSettings {
+        constructor() {
+            super(...arguments);
+            this.transformations = new TransformationsAPI.Transformations(this._client);
+        }
+    }
+    SpeedSettings.Transformations = transformations_1.Transformations;
+    SpeedSettings.BaseTransformations = transformations_1.BaseTransformations;
+    return SpeedSettings;
+})();
+exports.SpeedSettings = SpeedSettings;
+//# sourceMappingURL=speed-settings.js.map
+
+/***/ }),
+
+/***/ 39235:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Transformations = exports.BaseTransformations = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseTransformations = /* @__PURE__ */ (() => {
+    class BaseTransformations extends resource_1.APIResource {
+        /**
+         * Returns a list of Image Resizing configurations across all zones for the
+         * account. This endpoint is useful for retrieving the transformations
+         * (image_resizing) state for all zones belonging to an account.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const transformationsConfig of client.accounts.speedSettings.transformations.get(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        get(params, options) {
+            const { account_id } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/settings/transformations`, (pagination_1.SinglePage), options);
+        }
+    }
+    BaseTransformations._key = Object.freeze([
+        'accounts',
+        'speedSettings',
+        'transformations',
+    ]);
+    return BaseTransformations;
+})();
+exports.BaseTransformations = BaseTransformations;
+class Transformations extends BaseTransformations {
+}
+exports.Transformations = Transformations;
+//# sourceMappingURL=transformations.js.map
 
 /***/ }),
 
@@ -31433,24 +31795,43 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Subscriptions = exports.BaseSubscriptions = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const error_1 = __nccwpck_require__(34314);
 const pagination_1 = __nccwpck_require__(86242);
 const path_1 = __nccwpck_require__(91121);
 var BaseSubscriptions = /* @__PURE__ */ (() => {
     class BaseSubscriptions extends resource_1.APIResource {
         /**
-         * Creates an account subscription.
+         * Creates an account or zone subscription.
          *
          * @example
          * ```ts
          * const subscription =
          *   await client.accounts.subscriptions.create({
-         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     account_id: 'account_id',
          *   });
          * ```
          */
         create(params, options) {
-            const { account_id, ...body } = params;
-            return this._client.post((0, path_1.path) `/accounts/${account_id}/subscriptions`, { body, ...options })._thenUnwrap((obj) => obj.result);
+            const { account_id, zone_id, ...body } = params;
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.post((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/subscriptions`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
         /**
          * Updates an account subscription.
@@ -31488,21 +31869,36 @@ var BaseSubscriptions = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/subscriptions/${subscriptionIdentifier}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Lists all of an account's subscriptions.
+         * Lists all of an account or zone's subscriptions.
          *
          * @example
          * ```ts
          * // Automatically fetches more pages as needed.
          * for await (const subscription of client.accounts.subscriptions.get(
-         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   { account_id: 'account_id' },
          * )) {
          *   // ...
          * }
          * ```
          */
-        get(params, options) {
-            const { account_id } = params;
-            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/subscriptions`, (pagination_1.SinglePage), options);
+        get(params = {}, options) {
+            const { account_id, zone_id } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.getAPIList((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/subscriptions`, (pagination_1.SinglePage), options);
         }
     }
     BaseSubscriptions._key = Object.freeze([
@@ -31655,7 +32051,9 @@ var BaseTokens = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/tokens/${tokenID}`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List all Account Owned API tokens created for this account.
+         * List all Account Owned API tokens created for this account. Results include
+         * active, disabled, and recently-expired tokens when include_expired is set to
+         * true.
          *
          * @example
          * ```ts
@@ -32816,6 +33214,22 @@ var BasePrefixes = /* @__PURE__ */ (() => {
             const { account_id } = params;
             return this._client.get((0, path_1.path) `/accounts/${account_id}/addressing/prefixes/${prefixID}`, options)._thenUnwrap((obj) => obj.result);
         }
+        /**
+         * Triggers a new prefix validation. The checks are run asynchronously and include
+         * IRR, RPKI, and prefix ownership.
+         *
+         * @example
+         * ```ts
+         * const prefix = await client.addressing.prefixes.validate(
+         *   '2af39739cc4e3b5910c918468bb89828',
+         *   { account_id: '258def64c72dae45f3e4c8516e2111f2' },
+         * );
+         * ```
+         */
+        validate(prefixID, params, options) {
+            const { account_id } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/addressing/prefixes/${prefixID}/validate`, options)._thenUnwrap((obj) => obj.result);
+        }
     }
     BasePrefixes._key = Object.freeze([
         'addressing',
@@ -33239,8 +33653,44 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Robots = exports.BaseRobots = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
 var BaseRobots = /* @__PURE__ */ (() => {
     class BaseRobots extends resource_1.APIResource {
+        /**
+         * Fetches and parses robots.txt files for multiple domains within a zone in a
+         * single request. Each domain must belong to the specified zone. Results are keyed
+         * by hostname.
+         *
+         * @example
+         * ```ts
+         * const response = await client.aiAudit.robots.bulkGet({
+         *   zone_id: 'zone_id',
+         *   body: ['example.com', 'blog.example.com'],
+         * });
+         * ```
+         */
+        bulkGet(params, options) {
+            const { zone_id, body } = params;
+            return this._client.post((0, path_1.path) `/zones/${zone_id}/ai-audit/robots/bulk`, {
+                body: body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Fetches and parses the robots.txt file for a zone or a specific subdomain within
+         * the zone. Returns parsed user-agent rules, content signals, and sitemaps.
+         *
+         * @example
+         * ```ts
+         * const robot = await client.aiAudit.robots.get({
+         *   zone_id: 'zone_id',
+         * });
+         * ```
+         */
+        get(params, options) {
+            const { zone_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/ai-audit/robots`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
     }
     BaseRobots._key = Object.freeze([
         'aiAudit',
@@ -33707,7 +34157,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseTopup = /* @__PURE__ */ (() => {
     class BaseTopup extends resource_1.APIResource {
         /**
-         * Create a credit top-up via Stripe PaymentIntent for the given account.
+         * Create a credit top-up for the given account, charged to the account's default
+         * payment method.
          *
          * @example
          * ```ts
@@ -34245,7 +34696,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseEvaluationTypes = /* @__PURE__ */ (() => {
     class BaseEvaluationTypes extends resource_1.APIResource {
         /**
-         * List Evaluators
+         * Lists all available evaluator types for scoring AI gateway responses.
          *
          * @example
          * ```ts
@@ -34391,7 +34842,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseLogs = /* @__PURE__ */ (() => {
     class BaseLogs extends resource_1.APIResource {
         /**
-         * List Gateway Logs
+         * Lists request/response log entries for the AI gateway with filtering and
+         * pagination.
          *
          * @example
          * ```ts
@@ -34409,7 +34861,7 @@ var BaseLogs = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/ai-gateway/gateways/${gatewayID}/logs`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete Gateway Logs
+         * Deletes gateway log entries matching the specified criteria.
          *
          * @example
          * ```ts
@@ -35197,7 +35649,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseInstances = /* @__PURE__ */ (() => {
     class BaseInstances extends resource_1.APIResource {
         /**
-         * Create a new instance.
+         * Create a new AI Search instance with the given configuration.
          *
          * @example
          * ```ts
@@ -35215,7 +35667,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update instance.
+         * Update the configuration of an AI Search instance.
          *
          * @example
          * ```ts
@@ -35233,7 +35685,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List instances.
+         * List all AI Search instances in the account.
          *
          * @example
          * ```ts
@@ -35250,7 +35702,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/ai-search/instances`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete instance.
+         * Permanently delete an AI Search instance and all its indexed data.
          *
          * @example
          * ```ts
@@ -35288,7 +35740,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Read instance.
+         * Retrieve the configuration and status of an AI Search instance.
          *
          * @example
          * ```ts
@@ -35322,7 +35774,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieves usage statistics for AI Search instances.
+         * Retrieve usage and indexing statistics for an AI Search instance.
          *
          * @example
          * ```ts
@@ -35483,7 +35935,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseInstances = /* @__PURE__ */ (() => {
     class BaseInstances extends resource_1.APIResource {
         /**
-         * Create a new instance.
+         * Create a new AI Search instance with the given configuration.
          *
          * @example
          * ```ts
@@ -35505,7 +35957,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update instance.
+         * Update the configuration of an AI Search instance.
          *
          * @example
          * ```ts
@@ -35527,7 +35979,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List instances.
+         * List all AI Search instances in the account.
          *
          * @example
          * ```ts
@@ -35545,7 +35997,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/ai-search/namespaces/${name}/instances`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete instance.
+         * Permanently delete an AI Search instance and all its indexed data.
          *
          * @example
          * ```ts
@@ -35585,7 +36037,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/chat/completions`, { body, ...options });
         }
         /**
-         * Read instance.
+         * Retrieve the configuration and status of an AI Search instance.
          *
          * @example
          * ```ts
@@ -35627,7 +36079,7 @@ var BaseInstances = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieves usage statistics for AI Search instances.
+         * Retrieve usage and indexing statistics for an AI Search instance.
          *
          * @example
          * ```ts
@@ -35864,8 +36316,7 @@ var BaseItems = /* @__PURE__ */ (() => {
             return this._client.patch((0, path_1.path) `/accounts/${account_id}/ai-search/namespaces/${name}/instances/${id}/items/${itemID}`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Uploads a file to a managed AI Search instance via multipart/form-data (max
-         * 4MB).
+         * Uploads a file to a managed AI Search instance via multipart/form-data.
          *
          * @example
          * ```ts
@@ -35937,7 +36388,7 @@ var BaseJobs = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates the status of an AI Search indexing job.
+         * Cancel an in-progress indexing job for an AI Search instance.
          *
          * @example
          * ```ts
@@ -36052,7 +36503,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseNamespaces = /* @__PURE__ */ (() => {
     class BaseNamespaces extends resource_1.APIResource {
         /**
-         * Create a new namespace.
+         * Create a namespace for organizing AI Search instances.
          *
          * @example
          * ```ts
@@ -36070,7 +36521,9 @@ var BaseNamespaces = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update namespace.
+         * Update the description and/or the public endpoint configuration of an existing
+         * namespace. The default namespace's description cannot be modified, but its
+         * public endpoint can.
          *
          * @example
          * ```ts
@@ -36088,7 +36541,7 @@ var BaseNamespaces = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List namespaces.
+         * List namespaces in the account, including their descriptions and creation times.
          *
          * @example
          * ```ts
@@ -36105,7 +36558,8 @@ var BaseNamespaces = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/ai-search/namespaces`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete namespace.
+         * Permanently delete a namespace. The namespace must be empty (no instances), and
+         * the default namespace cannot be deleted.
          *
          * @example
          * ```ts
@@ -36144,7 +36598,7 @@ var BaseNamespaces = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Read namespace.
+         * Retrieve a namespace and its description.
          *
          * @example
          * ```ts
@@ -36159,7 +36613,8 @@ var BaseNamespaces = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/ai-search/namespaces/${name}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Multi-Instance Search
+         * Performs a semantic search query against multiple AI Search instances in
+         * parallel, merging the retrieved results into a single ranked response.
          *
          * @example
          * ```ts
@@ -36217,7 +36672,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseTokens = /* @__PURE__ */ (() => {
     class BaseTokens extends resource_1.APIResource {
         /**
-         * Create a new token.
+         * Create a stored Cloudflare credential for an AI Search instance to access its
+         * data source.
          *
          * @example
          * ```ts
@@ -36234,7 +36690,8 @@ var BaseTokens = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/ai-search/tokens`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update token.
+         * Replace a stored AI Search credential and invalidate cached credentials for
+         * instances that use it.
          *
          * @example
          * ```ts
@@ -36257,7 +36714,7 @@ var BaseTokens = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List tokens.
+         * List stored AI Search credentials in the account without exposing their secrets.
          *
          * @example
          * ```ts
@@ -36274,7 +36731,8 @@ var BaseTokens = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/ai-search/tokens`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete token.
+         * Permanently delete a stored AI Search credential. Credentials in use by an
+         * instance cannot be deleted.
          *
          * @example
          * ```ts
@@ -36289,7 +36747,7 @@ var BaseTokens = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/ai-search/tokens/${id}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Read token.
+         * Retrieve a stored AI Search credential without exposing its secret.
          *
          * @example
          * ```ts
@@ -36986,6 +37444,296 @@ class Silences extends BaseSilences {
 }
 exports.Silences = Silences;
 //# sourceMappingURL=silences.js.map
+
+/***/ }),
+
+/***/ 32387:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AnalyticsQuery = exports.BaseAnalyticsQuery = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const DataSecurityAPI = tslib_1.__importStar(__nccwpck_require__(58433));
+const data_security_1 = __nccwpck_require__(58433);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseAnalyticsQuery = /* @__PURE__ */ (() => {
+    class BaseAnalyticsQuery extends resource_1.APIResource {
+        /**
+         * Returns aggregate summary stats for a dataset. Includes current-period and
+         * previous-period totals for trend comparison.
+         *
+         * @example
+         * ```ts
+         * const response = await client.analyticsQuery.summary(
+         *   'access-logins',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     filters: [],
+         *     from: '2024-11-01T00:00:00Z',
+         *     groupBy: [],
+         *     stats: ['attemptsTotal'],
+         *     to: '2024-11-08T00:00:00Z',
+         *   },
+         * );
+         * ```
+         */
+        summary(dataset, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/analytics/query/${dataset}/summary`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns time-bucketed analytics data for a dataset. Includes time slots, each
+         * containing the requested stats, group-by dimensions, and resolution-controlled
+         * bucket size (e.g. `hour`, `day`).
+         *
+         * @example
+         * ```ts
+         * const response = await client.analyticsQuery.timeseries(
+         *   'shadow_it',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     filters: [
+         *       {
+         *         name: 'allowed',
+         *         op: 'eq',
+         *         values: [true],
+         *       },
+         *     ],
+         *     from: '2024-11-01T00:00:00Z',
+         *     groupBy: ['country', 'allowed'],
+         *     resolution: 'day',
+         *     stats: ['attemptsTotal'],
+         *     to: '2024-11-08T00:00:00Z',
+         *   },
+         * );
+         * ```
+         */
+        timeseries(dataset, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/analytics/query/${dataset}/timeseries`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns the top N results for a dataset by a specified stat. Includes an array
+         * of result rows, each containing the requested stats and group-by dimensions.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const analyticsQueryTopNResponse of client.analyticsQuery.topN(
+         *   'gateway-http',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     filters: [],
+         *     from: '2024-11-05T00:00:00Z',
+         *     groupBy: ['appName', 'appCategory'],
+         *     n: 10,
+         *     orderBy: 'bytesTotal',
+         *     stats: ['bytesTotal', 'requestsTotal'],
+         *     to: '2024-11-06T00:00:00Z',
+         *   },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        topN(dataset, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/analytics/query/${dataset}/top-n`, (pagination_1.SinglePage), { body, method: 'post', ...options });
+        }
+    }
+    BaseAnalyticsQuery._key = Object.freeze(['analyticsQuery']);
+    return BaseAnalyticsQuery;
+})();
+exports.BaseAnalyticsQuery = BaseAnalyticsQuery;
+var AnalyticsQuery = /* @__PURE__ */ (() => {
+    class AnalyticsQuery extends BaseAnalyticsQuery {
+        constructor() {
+            super(...arguments);
+            this.dataSecurity = new DataSecurityAPI.DataSecurity(this._client);
+        }
+    }
+    AnalyticsQuery.DataSecurity = data_security_1.DataSecurity;
+    AnalyticsQuery.BaseDataSecurity = data_security_1.BaseDataSecurity;
+    return AnalyticsQuery;
+})();
+exports.AnalyticsQuery = AnalyticsQuery;
+//# sourceMappingURL=analytics-query.js.map
+
+/***/ }),
+
+/***/ 40052:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ContentFindings = exports.BaseContentFindings = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseContentFindings = /* @__PURE__ */ (() => {
+    class BaseContentFindings extends resource_1.APIResource {
+        /**
+         * Returns the top N integrations ranked by total content findings.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const contentFindingTopNResponse of client.analyticsQuery.dataSecurity.contentFindings.topN(
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     filters: [],
+         *     from: '2024-11-01T00:00:00Z',
+         *     n: 10,
+         *     to: '2024-11-08T00:00:00Z',
+         *   },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        topN(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/analytics/query/data-security/content-findings/top-n`, (pagination_1.SinglePage), { body, method: 'post', ...options });
+        }
+    }
+    BaseContentFindings._key = Object.freeze(['analyticsQuery', 'dataSecurity', 'contentFindings']);
+    return BaseContentFindings;
+})();
+exports.BaseContentFindings = BaseContentFindings;
+class ContentFindings extends BaseContentFindings {
+}
+exports.ContentFindings = ContentFindings;
+//# sourceMappingURL=content-findings.js.map
+
+/***/ }),
+
+/***/ 58433:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DataSecurity = exports.BaseDataSecurity = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const ContentFindingsAPI = tslib_1.__importStar(__nccwpck_require__(40052));
+const content_findings_1 = __nccwpck_require__(40052);
+const FindingsAPI = tslib_1.__importStar(__nccwpck_require__(31492));
+const findings_1 = __nccwpck_require__(31492);
+var BaseDataSecurity = /* @__PURE__ */ (() => {
+    class BaseDataSecurity extends resource_1.APIResource {
+    }
+    BaseDataSecurity._key = Object.freeze([
+        'analyticsQuery',
+        'dataSecurity',
+    ]);
+    return BaseDataSecurity;
+})();
+exports.BaseDataSecurity = BaseDataSecurity;
+var DataSecurity = /* @__PURE__ */ (() => {
+    class DataSecurity extends BaseDataSecurity {
+        constructor() {
+            super(...arguments);
+            this.contentFindings = new ContentFindingsAPI.ContentFindings(this._client);
+            this.findings = new FindingsAPI.Findings(this._client);
+        }
+    }
+    DataSecurity.ContentFindings = content_findings_1.ContentFindings;
+    DataSecurity.BaseContentFindings = content_findings_1.BaseContentFindings;
+    DataSecurity.Findings = findings_1.Findings;
+    DataSecurity.BaseFindings = findings_1.BaseFindings;
+    return DataSecurity;
+})();
+exports.DataSecurity = DataSecurity;
+//# sourceMappingURL=data-security.js.map
+
+/***/ }),
+
+/***/ 31492:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Findings = exports.BaseFindings = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseFindings = /* @__PURE__ */ (() => {
+    class BaseFindings extends resource_1.APIResource {
+        /**
+         * Returns aggregate current-period and previous-period totals for CASB findings.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.analyticsQuery.dataSecurity.findings.summary(
+         *     {
+         *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       filters: [],
+         *       from: '2024-11-01T00:00:00Z',
+         *       to: '2024-11-08T00:00:00Z',
+         *     },
+         *   );
+         * ```
+         */
+        summary(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/analytics/query/data-security/findings/summary`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns merged time-bucketed CASB findings.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.analyticsQuery.dataSecurity.findings.timeseries(
+         *     {
+         *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       filters: [],
+         *       from: '2024-11-01T00:00:00Z',
+         *       to: '2024-11-08T00:00:00Z',
+         *     },
+         *   );
+         * ```
+         */
+        timeseries(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/analytics/query/data-security/findings/timeseries`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseFindings._key = Object.freeze([
+        'analyticsQuery',
+        'dataSecurity',
+        'findings',
+    ]);
+    return BaseFindings;
+})();
+exports.BaseFindings = BaseFindings;
+class Findings extends BaseFindings {
+}
+exports.Findings = Findings;
+//# sourceMappingURL=findings.js.map
 
 /***/ }),
 
@@ -38188,7 +38936,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSchemas = /* @__PURE__ */ (() => {
     class BaseSchemas extends resource_1.APIResource {
         /**
-         * Retrieve operations and features as OpenAPI schemas
+         * Retrieves API operations and their features exported as OpenAPI schemas.
          *
          * @example
          * ```ts
@@ -38422,7 +39170,8 @@ var BaseUserSchemas = /* @__PURE__ */ (() => {
      */
     class BaseUserSchemas extends resource_1.APIResource {
         /**
-         * Upload a schema to a zone
+         * Uploads a new OpenAPI schema for API Shield schema validation. The schema
+         * defines expected request/response formats for API endpoints.
          *
          * @deprecated Use [Schema Validation API](https://developers.cloudflare.com/api/resources/schema_validation/) instead.
          */
@@ -38841,20 +39590,67 @@ var BaseUsage = /* @__PURE__ */ (() => {
          *
          * When `from` and `to` are omitted, defaults to the start of the current month
          * through today. The maximum date range is 31 days.
+         *
+         * @deprecated Use `get_account_usage_v2` instead.
          */
         get(params, options) {
             const { account_id, ...query } = params;
             return this._client.get((0, path_1.path) `/accounts/${account_id}/billable/usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Returns billable usage data for PayGo (self-serve) accounts. When no query
-         * parameters are provided, returns usage for the current billing period. This
-         * endpoint is currently in alpha and access is restricted to select accounts.
-         * While in alpha, the endpoint may get breaking changes.
+         * Returns high-level usage information for the account, including coverage, and
+         * subscription metadata.
+         */
+        getAccountUsageInfoV1(params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/billable-usage/info`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns billable usage data for the account. When no query parameters are
+         * provided, returns usage for the current billing period.
+         */
+        getAccountUsageV1(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/billable-usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns cost and usage data for a single Cloudflare account, aligned with the
+         * [FinOps FOCUS v1.3](https://focus.finops.org/focus-specification/v1-3/) Cost and
+         * Usage dataset specification.
+         *
+         * Each record represents one billable metric for one account on one day. This
+         * includes all metered usage, including usage that falls within free-tier
+         * allowances and may result in zero cost.
+         *
+         * **Note:** Cost and pricing fields are not yet populated and will be absent from
+         * responses until billing integration is complete.
+         *
+         * When `from` and `to` are omitted, defaults to the start of the current month
+         * through today. The maximum date range is 31 days.
+         */
+        getAccountUsageV2(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/billable/usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns billable usage data for the account. When no query parameters are
+         * provided, returns usage for the current billing period.
+         *
+         * @deprecated Use `get_account_usage_v1` instead.
          */
         paygo(params, options) {
             const { account_id, ...query } = params;
-            return this._client.get((0, path_1.path) `/accounts/${account_id}/paygo-usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/billable-usage`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns high-level usage information for the account, including coverage, and
+         * subscription metadata.
+         *
+         * @deprecated Use `get_account_usage_info_v1` instead.
+         */
+        paygoInfo(params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/billable-usage/info`, options)._thenUnwrap((obj) => obj.result);
         }
     }
     BaseUsage._key = Object.freeze(['billing', 'usage']);
@@ -39611,7 +40407,7 @@ var BaseQueries = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/v2/brand-protection/domain/queries`, {
                 query,
                 ...options,
-            });
+            })._thenUnwrap((obj) => obj.result);
         }
     }
     BaseQueries._key = Object.freeze([
@@ -39705,7 +40501,7 @@ var BaseAccessibilityTree = /* @__PURE__ */ (() => {
          * const accessibilityTree =
          *   await client.browserRendering.accessibilityTree.create({
          *     account_id: 'account_id',
-         *     html: '<h1>Hello World!</h1>',
+         *     url: 'https://www.example.com/',
          *   });
          * ```
          */
@@ -39964,7 +40760,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseBrowser = /* @__PURE__ */ (() => {
     class BaseBrowser extends resource_1.APIResource {
         /**
-         * Get a browser session ID.
+         * Acquires a browser and returns its session ID and websocket URL. Optionally
+         * accepts a JSON body with session guardrails to restrict outbound HTTP/S traffic.
          *
          * @example
          * ```ts
@@ -39975,9 +40772,10 @@ var BaseBrowser = /* @__PURE__ */ (() => {
          * ```
          */
         create(params, options) {
-            const { account_id, keep_alive, lab, recording, targets } = params;
+            const { account_id, keep_alive, lab, liveViewUrlExpiresInMs, recording, targets, ...body } = params;
             return this._client.post((0, path_1.path) `/accounts/${account_id}/browser-rendering/devtools/browser`, {
-                query: { keep_alive, lab, recording, targets },
+                query: { keep_alive, lab, liveViewUrlExpiresInMs, recording, targets },
+                body,
                 ...options,
             });
         }
@@ -40017,7 +40815,10 @@ var BaseBrowser = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Acquires and establishes a WebSocket connection to a browser session.
+         * Acquires and establishes a WebSocket connection to a browser session. Session
+         * guardrails may be supplied in the `cf-brapi-guardrails` header as
+         * base64url-encoded JSON of the same `guardrails` object the POST body accepts
+         * (for example `{"allowedDomains":["*.example.com"]}`).
          *
          * @example
          * ```ts
@@ -40027,11 +40828,17 @@ var BaseBrowser = /* @__PURE__ */ (() => {
          * ```
          */
         launch(params, options) {
-            const { account_id, ...query } = params;
+            const { account_id, 'cf-brapi-guardrails': cfBrapiGuardrails, ...query } = params;
             return this._client.get((0, path_1.path) `/accounts/${account_id}/browser-rendering/devtools/browser`, {
                 query,
                 ...options,
-                headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]),
+                headers: (0, headers_1.buildHeaders)([
+                    {
+                        Accept: '*/*',
+                        ...(cfBrapiGuardrails != null ? { 'cf-brapi-guardrails': cfBrapiGuardrails } : undefined),
+                    },
+                    options?.headers,
+                ]),
             });
         }
         /**
@@ -40163,8 +40970,8 @@ var BaseTargets = /* @__PURE__ */ (() => {
          * ```
          */
         create(sessionID, params, options) {
-            const { account_id, url } = params;
-            return this._client.put((0, path_1.path) `/accounts/${account_id}/browser-rendering/devtools/browser/${sessionID}/json/new`, { query: { url }, ...options });
+            const { account_id, liveViewUrlExpiresInMs, url } = params;
+            return this._client.put((0, path_1.path) `/accounts/${account_id}/browser-rendering/devtools/browser/${sessionID}/json/new`, { query: { liveViewUrlExpiresInMs, url }, ...options });
         }
         /**
          * Returns a list of all debuggable targets including tabs, pages, service workers,
@@ -40180,8 +40987,8 @@ var BaseTargets = /* @__PURE__ */ (() => {
          * ```
          */
         list(sessionID, params, options) {
-            const { account_id } = params;
-            return this._client.get((0, path_1.path) `/accounts/${account_id}/browser-rendering/devtools/browser/${sessionID}/json/list`, options);
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/browser-rendering/devtools/browser/${sessionID}/json/list`, { query, ...options });
         }
         /**
          * Activates (brings to front) a specific browser target by its ID.
@@ -40378,7 +41185,7 @@ var BaseJson = /* @__PURE__ */ (() => {
          * ```ts
          * const json = await client.browserRendering.json.create({
          *   account_id: 'account_id',
-         *   html: '<h1>Hello World!</h1>',
+         *   url: 'https://www.example.com/',
          * });
          * ```
          */
@@ -40424,7 +41231,7 @@ var BaseLinks = /* @__PURE__ */ (() => {
          * ```ts
          * const links = await client.browserRendering.links.create({
          *   account_id: 'account_id',
-         *   html: '<h1>Hello World!</h1>',
+         *   url: 'https://www.example.com/',
          * });
          * ```
          */
@@ -40520,7 +41327,7 @@ var BasePDF = /* @__PURE__ */ (() => {
          * ```ts
          * const pdf = await client.browserRendering.pdf.create({
          *   account_id: 'account_id',
-         *   html: '<h1>Hello World!</h1>',
+         *   url: 'https://www.example.com/',
          * });
          *
          * const content = await pdf.blob();
@@ -40573,7 +41380,7 @@ var BaseScrape = /* @__PURE__ */ (() => {
          *   {
          *     account_id: 'account_id',
          *     elements: [{ selector: 'h1' }],
-         *     html: '<h1>Hello World!</h1>',
+         *     url: 'https://www.example.com/',
          *   },
          * );
          * ```
@@ -40623,7 +41430,7 @@ var BaseScreenshot = /* @__PURE__ */ (() => {
          * const screenshot =
          *   await client.browserRendering.screenshot.create({
          *     account_id: 'account_id',
-         *     html: '<h1>Hello World!</h1>',
+         *     url: 'https://www.example.com/',
          *   });
          * ```
          */
@@ -40672,8 +41479,8 @@ var BaseSnapshot = /* @__PURE__ */ (() => {
          * const snapshot =
          *   await client.browserRendering.snapshot.create({
          *     account_id: 'account_id',
-         *     html: '<h1>Hello World!</h1>',
          *     formats: ['content', 'screenshot'],
+         *     url: 'https://www.example.com/',
          *   });
          * ```
          */
@@ -41933,14 +42740,16 @@ const path_1 = __nccwpck_require__(91121);
 var BaseRules = /* @__PURE__ */ (() => {
     class BaseRules extends resource_1.APIResource {
         /**
-         * Put Rules
+         * Updates Cloud Connector rules for a zone, replacing the existing rule
+         * configuration.
          */
         update(params, options) {
             const { zone_id, rules } = params;
             return this._client.getAPIList((0, path_1.path) `/zones/${zone_id}/cloud_connector/rules`, (pagination_1.SinglePage), { body: rules, method: 'put', ...options });
         }
         /**
-         * Rules
+         * Retrieves the Cloud Connector rules configured for a zone. Rules define how
+         * traffic is routed to cloud services.
          */
         list(params, options) {
             const { zone_id } = params;
@@ -42784,6 +43593,55 @@ exports.Scans = Scans;
 
 /***/ }),
 
+/***/ 41910:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Aggregate = exports.BaseAggregate = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseAggregate = /* @__PURE__ */ (() => {
+    class BaseAggregate extends resource_1.APIResource {
+        /**
+         * Aggregate threat events by one or more columns (e.g., attacker, targetIndustry)
+         * with optional date filtering and daily grouping. Supports multi-dimensional
+         * aggregation for cross-analysis.
+         *
+         * @example
+         * ```ts
+         * const aggregates =
+         *   await client.cloudforceOne.threatEvents.aggregate.list({
+         *     account_id: 'account_id',
+         *     aggregateBy: 'aggregateBy',
+         *   });
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/aggregate`, {
+                query,
+                ...options,
+            });
+        }
+    }
+    BaseAggregate._key = Object.freeze([
+        'cloudforceOne',
+        'threatEvents',
+        'aggregate',
+    ]);
+    return BaseAggregate;
+})();
+exports.BaseAggregate = BaseAggregate;
+class Aggregate extends BaseAggregate {
+}
+exports.Aggregate = Aggregate;
+//# sourceMappingURL=aggregate.js.map
+
+/***/ }),
+
 /***/ 97845:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -42797,7 +43655,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseAttackers = /* @__PURE__ */ (() => {
     class BaseAttackers extends resource_1.APIResource {
         /**
-         * Lists attackers across multiple datasets
+         * Lists known threat attackers tracked in Cloudforce One threat intelligence.
          *
          * @example
          * ```ts
@@ -42830,20 +43688,63 @@ exports.Attackers = Attackers;
 
 /***/ }),
 
-/***/ 18809:
+/***/ 4657:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Catalog = exports.BaseCatalog = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseCatalog = /* @__PURE__ */ (() => {
+    class BaseCatalog extends resource_1.APIResource {
+        /**
+         * Lists categories
+         *
+         * @example
+         * ```ts
+         * const catalogs =
+         *   await client.cloudforceOne.threatEvents.categories.catalog.list(
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/categories/catalog`, options);
+        }
+    }
+    BaseCatalog._key = Object.freeze(['cloudforceOne', 'threatEvents', 'categories', 'catalog']);
+    return BaseCatalog;
+})();
+exports.BaseCatalog = BaseCatalog;
+class Catalog extends BaseCatalog {
+}
+exports.Catalog = Catalog;
+//# sourceMappingURL=catalog.js.map
+
+/***/ }),
+
+/***/ 54324:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Categories = exports.BaseCategories = void 0;
+const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const CatalogAPI = tslib_1.__importStar(__nccwpck_require__(4657));
+const catalog_1 = __nccwpck_require__(4657);
 const path_1 = __nccwpck_require__(91121);
 var BaseCategories = /* @__PURE__ */ (() => {
     class BaseCategories extends resource_1.APIResource {
         /**
-         * Creates a new category
+         * Creates a new threat event category in Cloudforce One for organizing and
+         * classifying threat events.
          *
          * @example
          * ```ts
@@ -42865,7 +43766,8 @@ var BaseCategories = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Lists categories across multiple datasets
+         * Lists all threat event categories configured for classifying and organizing
+         * threat events.
          *
          * @example
          * ```ts
@@ -42883,7 +43785,7 @@ var BaseCategories = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Deletes a category
+         * Removes a threat event category from Cloudforce One.
          *
          * @example
          * ```ts
@@ -42899,7 +43801,8 @@ var BaseCategories = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/categories/${categoryID}`, options);
         }
         /**
-         * Updates a category
+         * Partially updates a threat event category in Cloudforce One, modifying specific
+         * fields without replacing the entire category.
          *
          * @example
          * ```ts
@@ -42918,7 +43821,7 @@ var BaseCategories = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Reads a category
+         * Retrieves details for a specific threat event category.
          *
          * @example
          * ```ts
@@ -42942,8 +43845,17 @@ var BaseCategories = /* @__PURE__ */ (() => {
     return BaseCategories;
 })();
 exports.BaseCategories = BaseCategories;
-class Categories extends BaseCategories {
-}
+var Categories = /* @__PURE__ */ (() => {
+    class Categories extends BaseCategories {
+        constructor() {
+            super(...arguments);
+            this.catalog = new CatalogAPI.Catalog(this._client);
+        }
+    }
+    Categories.Catalog = catalog_1.Catalog;
+    Categories.BaseCatalog = catalog_1.BaseCatalog;
+    return Categories;
+})();
 exports.Categories = Categories;
 //# sourceMappingURL=categories.js.map
 
@@ -42962,7 +43874,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseCountries = /* @__PURE__ */ (() => {
     class BaseCountries extends resource_1.APIResource {
         /**
-         * Retrieves countries information for all countries
+         * Lists countries referenced in Cloudforce One threat intelligence data.
          *
          * @example
          * ```ts
@@ -43029,13 +43941,16 @@ exports.Datasets = exports.BaseDatasets = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const EventsAPI = tslib_1.__importStar(__nccwpck_require__(48682));
+const events_1 = __nccwpck_require__(48682);
 const HealthAPI = tslib_1.__importStar(__nccwpck_require__(98785));
 const health_1 = __nccwpck_require__(98785);
 const path_1 = __nccwpck_require__(91121);
 var BaseDatasets = /* @__PURE__ */ (() => {
     class BaseDatasets extends resource_1.APIResource {
         /**
-         * Creates a dataset
+         * Creates a new threat event dataset in Cloudforce One for organizing related
+         * threat events.
          *
          * @example
          * ```ts
@@ -43055,7 +43970,7 @@ var BaseDatasets = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Lists all datasets in an account
+         * Lists all threat event datasets configured in Cloudforce One.
          *
          * @example
          * ```ts
@@ -43073,7 +43988,24 @@ var BaseDatasets = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Updates an existing dataset
+         * Soft-deletes a dataset given a datasetId.
+         *
+         * @example
+         * ```ts
+         * const dataset =
+         *   await client.cloudforceOne.threatEvents.datasets.delete(
+         *     'dataset_id',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        delete(datasetID, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${datasetID}`, options);
+        }
+        /**
+         * Partially updates a threat event dataset in Cloudforce One, modifying specific
+         * fields without replacing the entire dataset configuration.
          *
          * @example
          * ```ts
@@ -43096,7 +44028,7 @@ var BaseDatasets = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Reads a dataset
+         * Retrieves details for a specific threat event dataset.
          *
          * @example
          * ```ts
@@ -43142,14 +44074,57 @@ var Datasets = /* @__PURE__ */ (() => {
         constructor() {
             super(...arguments);
             this.health = new HealthAPI.Health(this._client);
+            this.events = new EventsAPI.Events(this._client);
         }
     }
     Datasets.Health = health_1.Health;
     Datasets.BaseHealth = health_1.BaseHealth;
+    Datasets.Events = events_1.Events;
+    Datasets.BaseEvents = events_1.BaseEvents;
     return Datasets;
 })();
 exports.Datasets = Datasets;
 //# sourceMappingURL=datasets.js.map
+
+/***/ }),
+
+/***/ 48682:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Events = exports.BaseEvents = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseEvents = /* @__PURE__ */ (() => {
+    class BaseEvents extends resource_1.APIResource {
+        /**
+         * Retrieves a specific event by its UUID.
+         *
+         * @example
+         * ```ts
+         * const event =
+         *   await client.cloudforceOne.threatEvents.datasets.events.get(
+         *     'event_id',
+         *     { account_id: 'account_id', dataset_id: 'dataset_id' },
+         *   );
+         * ```
+         */
+        get(eventID, params, options) {
+            const { account_id, dataset_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${dataset_id}/events/${eventID}`, options);
+        }
+    }
+    BaseEvents._key = Object.freeze(['cloudforceOne', 'threatEvents', 'datasets', 'events']);
+    return BaseEvents;
+})();
+exports.BaseEvents = BaseEvents;
+class Events extends BaseEvents {
+}
+exports.Events = Events;
+//# sourceMappingURL=events.js.map
 
 /***/ }),
 
@@ -43189,7 +44164,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseEventTags = /* @__PURE__ */ (() => {
     class BaseEventTags extends resource_1.APIResource {
         /**
-         * Adds a tag to an event
+         * Adds a tag to a threat event in Cloudforce One for classification and filtering.
          *
          * @example
          * ```ts
@@ -43208,7 +44183,7 @@ var BaseEventTags = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Removes a tag from an event
+         * Removes a tag from a threat event in Cloudforce One.
          *
          * @example
          * ```ts
@@ -43239,37 +44214,359 @@ exports.EventTags = EventTags;
 
 /***/ }),
 
-/***/ 54928:
+/***/ 25673:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.IndicatorTypes = exports.BaseIndicatorTypes = void 0;
+exports.Graph = exports.BaseGraph = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
 const path_1 = __nccwpck_require__(91121);
-var BaseIndicatorTypes = /* @__PURE__ */ (() => {
-    class BaseIndicatorTypes extends resource_1.APIResource {
+var BaseGraph = /* @__PURE__ */ (() => {
+    class BaseGraph extends resource_1.APIResource {
         /**
-         * This Method is deprecated. Please use /events/dataset/:dataset_id/indicatorTypes
-         * instead.
+         * Expands the single-level relationship neighborhood of one or more seed nodes
+         * (event, indicator, or tag) from R2 Data Catalog. Seeds use compact id format
+         * (type:uuid), e.g. "event:550e8400-...". Multi-seed requests merge and
+         * deduplicate results server-side. Hydrates neighbor entities with summary data
+         * from Durable Objects. Supports filtering by relationship type and dataset scope.
          *
-         * @deprecated
+         * @example
+         * ```ts
+         * const graphs =
+         *   await client.cloudforceOne.threatEvents.graph.list({
+         *     account_id: 'account_id',
+         *   });
+         * ```
          */
         list(params, options) {
-            const { account_id } = params;
-            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/indicatorTypes`, options);
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/graph`, {
+                query,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
     }
-    BaseIndicatorTypes._key = Object.freeze(['cloudforceOne', 'threatEvents', 'indicatorTypes']);
-    return BaseIndicatorTypes;
+    BaseGraph._key = Object.freeze([
+        'cloudforceOne',
+        'threatEvents',
+        'graph',
+    ]);
+    return BaseGraph;
 })();
-exports.BaseIndicatorTypes = BaseIndicatorTypes;
-class IndicatorTypes extends BaseIndicatorTypes {
+exports.BaseGraph = BaseGraph;
+class Graph extends BaseGraph {
 }
-exports.IndicatorTypes = IndicatorTypes;
-//# sourceMappingURL=indicator-types.js.map
+exports.Graph = Graph;
+//# sourceMappingURL=graph.js.map
+
+/***/ }),
+
+/***/ 56240:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Graphql = exports.BaseGraphql = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseGraphql = /* @__PURE__ */ (() => {
+    class BaseGraphql extends resource_1.APIResource {
+        /**
+         * Execute GraphQL aggregations over threat events. Supports multi-dimensional
+         * group-bys, optional date range filtering, and multi-dataset aggregation.
+         *
+         * @example
+         * ```ts
+         * const graphql =
+         *   await client.cloudforceOne.threatEvents.graphql.create({
+         *     account_id: 'account_id',
+         *   });
+         * ```
+         */
+        create(params, options) {
+            const { account_id } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/graphql`, options);
+        }
+    }
+    BaseGraphql._key = Object.freeze([
+        'cloudforceOne',
+        'threatEvents',
+        'graphql',
+    ]);
+    return BaseGraphql;
+})();
+exports.BaseGraphql = BaseGraphql;
+class Graphql extends BaseGraphql {
+}
+exports.Graphql = Graphql;
+//# sourceMappingURL=graphql.js.map
+
+/***/ }),
+
+/***/ 85607:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Aggregate = exports.BaseAggregate = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseAggregate = /* @__PURE__ */ (() => {
+    class BaseAggregate extends resource_1.APIResource {
+        /**
+         * Aggregate threat indicators by one or more columns (e.g., indicatorType, value)
+         * across datasets. Returns top-N groups ordered by count.
+         *
+         * @example
+         * ```ts
+         * const aggregates =
+         *   await client.cloudforceOne.threatEvents.indicators.aggregate.list(
+         *     {
+         *       account_id: 'account_id',
+         *       aggregateBy: 'aggregateBy',
+         *     },
+         *   );
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/indicators/aggregate`, {
+                query,
+                ...options,
+            });
+        }
+    }
+    BaseAggregate._key = Object.freeze(['cloudforceOne', 'threatEvents', 'indicators', 'aggregate']);
+    return BaseAggregate;
+})();
+exports.BaseAggregate = BaseAggregate;
+class Aggregate extends BaseAggregate {
+}
+exports.Aggregate = Aggregate;
+//# sourceMappingURL=aggregate.js.map
+
+/***/ }),
+
+/***/ 3941:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ByDataset = exports.BaseByDataset = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const TagsAPI = tslib_1.__importStar(__nccwpck_require__(53336));
+const tags_1 = __nccwpck_require__(53336);
+const path_1 = __nccwpck_require__(91121);
+var BaseByDataset = /* @__PURE__ */ (() => {
+    class BaseByDataset extends resource_1.APIResource {
+        /**
+         * This method is deprecated. Please use /events/indicators to retrieve a paginated
+         * list of indicators.
+         *
+         * @deprecated Use indicators.list instead (GET /accounts/{account_id}/cloudforce-one/events/indicators).
+         */
+        list(datasetID, params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${datasetID}/indicators`, { query, ...options });
+        }
+        /**
+         * Retrieves a specific indicator by its UUID.
+         *
+         * @example
+         * ```ts
+         * const byDataset =
+         *   await client.cloudforceOne.threatEvents.indicators.byDataset.get(
+         *     'indicator_id',
+         *     { account_id: 'account_id', dataset_id: 'dataset_id' },
+         *   );
+         * ```
+         */
+        get(indicatorID, params, options) {
+            const { account_id, dataset_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${dataset_id}/indicators/${indicatorID}`, options);
+        }
+    }
+    BaseByDataset._key = Object.freeze(['cloudforceOne', 'threatEvents', 'indicators', 'byDataset']);
+    return BaseByDataset;
+})();
+exports.BaseByDataset = BaseByDataset;
+var ByDataset = /* @__PURE__ */ (() => {
+    class ByDataset extends BaseByDataset {
+        constructor() {
+            super(...arguments);
+            this.tags = new TagsAPI.Tags(this._client);
+        }
+    }
+    ByDataset.Tags = tags_1.Tags;
+    ByDataset.BaseTags = tags_1.BaseTags;
+    return ByDataset;
+})();
+exports.ByDataset = ByDataset;
+//# sourceMappingURL=by-dataset.js.map
+
+/***/ }),
+
+/***/ 53336:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Tags = exports.BaseTags = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseTags = /* @__PURE__ */ (() => {
+    class BaseTags extends resource_1.APIResource {
+        /**
+         * Returns all mirrored tags from the indicator dataset (DO mirror table). No
+         * pagination.
+         *
+         * @example
+         * ```ts
+         * const tags =
+         *   await client.cloudforceOne.threatEvents.indicators.byDataset.tags.list(
+         *     'dataset_id',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(datasetID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${datasetID}/indicators/tags`, options);
+        }
+    }
+    BaseTags._key = Object.freeze(['cloudforceOne', 'threatEvents', 'indicators', 'byDataset', 'tags']);
+    return BaseTags;
+})();
+exports.BaseTags = BaseTags;
+class Tags extends BaseTags {
+}
+exports.Tags = Tags;
+//# sourceMappingURL=tags.js.map
+
+/***/ }),
+
+/***/ 99452:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Indicators = exports.BaseIndicators = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const AggregateAPI = tslib_1.__importStar(__nccwpck_require__(85607));
+const aggregate_1 = __nccwpck_require__(85607);
+const TypesAPI = tslib_1.__importStar(__nccwpck_require__(62301));
+const types_1 = __nccwpck_require__(62301);
+const ByDatasetAPI = tslib_1.__importStar(__nccwpck_require__(3941));
+const by_dataset_1 = __nccwpck_require__(3941);
+const path_1 = __nccwpck_require__(91121);
+var BaseIndicators = /* @__PURE__ */ (() => {
+    class BaseIndicators extends resource_1.APIResource {
+        /**
+         * Retrieves indicators across specified datasets, ordered by createdAt descending
+         * then UUID, dataset ID, and shard ID ascending. Use datasetIds=all or
+         * datasetIds=\* to query all datasets for the account. If no datasetIds provided,
+         * uses the default dataset.
+         *
+         * @example
+         * ```ts
+         * const indicators =
+         *   await client.cloudforceOne.threatEvents.indicators.list({
+         *     account_id: 'account_id',
+         *   });
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/indicators`, {
+                query,
+                ...options,
+            });
+        }
+    }
+    BaseIndicators._key = Object.freeze([
+        'cloudforceOne',
+        'threatEvents',
+        'indicators',
+    ]);
+    return BaseIndicators;
+})();
+exports.BaseIndicators = BaseIndicators;
+var Indicators = /* @__PURE__ */ (() => {
+    class Indicators extends BaseIndicators {
+        constructor() {
+            super(...arguments);
+            this.aggregate = new AggregateAPI.Aggregate(this._client);
+            this.types = new TypesAPI.Types(this._client);
+            this.byDataset = new ByDatasetAPI.ByDataset(this._client);
+        }
+    }
+    Indicators.Aggregate = aggregate_1.Aggregate;
+    Indicators.BaseAggregate = aggregate_1.BaseAggregate;
+    Indicators.Types = types_1.Types;
+    Indicators.BaseTypes = types_1.BaseTypes;
+    Indicators.ByDataset = by_dataset_1.ByDataset;
+    Indicators.BaseByDataset = by_dataset_1.BaseByDataset;
+    return Indicators;
+})();
+exports.Indicators = Indicators;
+//# sourceMappingURL=indicators.js.map
+
+/***/ }),
+
+/***/ 62301:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Types = exports.BaseTypes = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseTypes = /* @__PURE__ */ (() => {
+    class BaseTypes extends resource_1.APIResource {
+        /**
+         * Lists indicator types across multiple datasets
+         *
+         * @example
+         * ```ts
+         * const types =
+         *   await client.cloudforceOne.threatEvents.indicators.types.list(
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/indicator-types`, {
+                query,
+                ...options,
+            });
+        }
+    }
+    BaseTypes._key = Object.freeze(['cloudforceOne', 'threatEvents', 'indicators', 'types']);
+    return BaseTypes;
+})();
+exports.BaseTypes = BaseTypes;
+class Types extends BaseTypes {
+}
+exports.Types = Types;
+//# sourceMappingURL=types.js.map
 
 /***/ }),
 
@@ -43300,6 +44597,123 @@ exports.Insights = Insights;
 
 /***/ }),
 
+/***/ 15277:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Queries = exports.BaseQueries = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const headers_1 = __nccwpck_require__(24644);
+const path_1 = __nccwpck_require__(91121);
+var BaseQueries = /* @__PURE__ */ (() => {
+    class BaseQueries extends resource_1.APIResource {
+        /**
+         * Create a new saved event query for the account
+         *
+         * @example
+         * ```ts
+         * const query =
+         *   await client.cloudforceOne.threatEvents.queries.create({
+         *     account_id: 'account_id',
+         *     alert_enabled: true,
+         *     alert_rollup_enabled: true,
+         *     name: 'name',
+         *     query_json: 'query_json',
+         *     rule_enabled: true,
+         *   });
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/queries/create`, {
+                body,
+                ...options,
+            });
+        }
+        /**
+         * Retrieve all saved event queries for the account
+         *
+         * @example
+         * ```ts
+         * const queries =
+         *   await client.cloudforceOne.threatEvents.queries.list({
+         *     account_id: 'account_id',
+         *   });
+         * ```
+         */
+        list(params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/queries`, options);
+        }
+        /**
+         * Delete a saved event query by its ID
+         *
+         * @example
+         * ```ts
+         * await client.cloudforceOne.threatEvents.queries.delete(0, {
+         *   account_id: 'account_id',
+         * });
+         * ```
+         */
+        delete(queryID, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/queries/${queryID}`, {
+                ...options,
+                headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]),
+            });
+        }
+        /**
+         * Update an existing saved event query by its ID
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.cloudforceOne.threatEvents.queries.edit(0, {
+         *     account_id: 'account_id',
+         *   });
+         * ```
+         */
+        edit(queryID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/queries/${queryID}`, {
+                body,
+                ...options,
+            });
+        }
+        /**
+         * Retrieve a saved event query by its ID
+         *
+         * @example
+         * ```ts
+         * const query =
+         *   await client.cloudforceOne.threatEvents.queries.get(0, {
+         *     account_id: 'account_id',
+         *   });
+         * ```
+         */
+        get(queryID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/queries/${queryID}`, options);
+        }
+    }
+    BaseQueries._key = Object.freeze([
+        'cloudforceOne',
+        'threatEvents',
+        'queries',
+    ]);
+    return BaseQueries;
+})();
+exports.BaseQueries = BaseQueries;
+class Queries extends BaseQueries {
+}
+exports.Queries = Queries;
+//# sourceMappingURL=queries.js.map
+
+/***/ }),
+
 /***/ 80207:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -43313,7 +44727,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseRaw = /* @__PURE__ */ (() => {
     class BaseRaw extends resource_1.APIResource {
         /**
-         * Updates a raw event
+         * Partially updates raw threat event data in Cloudforce One, modifying specific
+         * fields of the event.
          *
          * @example
          * ```ts
@@ -43332,7 +44747,7 @@ var BaseRaw = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Reads data for a raw event
+         * Retrieves raw threat event data for a specific event in Cloudforce One.
          *
          * @example
          * ```ts
@@ -43375,7 +44790,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseRelate = /* @__PURE__ */ (() => {
     class BaseRelate extends resource_1.APIResource {
         /**
-         * Removes an event reference
+         * Removes a reference link between related threat events in Cloudforce One.
          *
          * @example
          * ```ts
@@ -43406,15 +44821,254 @@ exports.Relate = Relate;
 
 /***/ }),
 
-/***/ 89516:
+/***/ 62150:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Relationships = exports.BaseRelationships = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseRelationships = /* @__PURE__ */ (() => {
+    class BaseRelationships extends resource_1.APIResource {
+        /**
+         * The `event_id` must be defined (to list existing events (and their IDs), use the
+         * [`Filter and List Events`](https://developers.cloudflare.com/api/resources/cloudforce_one/subresources/threat_events/methods/list/)
+         * endpoint). Also, must provide query parameters.
+         *
+         * @example
+         * ```ts
+         * const relationships =
+         *   await client.cloudforceOne.threatEvents.relationships.list(
+         *     'event_id',
+         *     { account_id: 'account_id', datasetId: 'datasetId' },
+         *   );
+         * ```
+         */
+        list(eventID, params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/${eventID}/relationships`, {
+                query,
+                ...options,
+            });
+        }
+    }
+    BaseRelationships._key = Object.freeze([
+        'cloudforceOne',
+        'threatEvents',
+        'relationships',
+    ]);
+    return BaseRelationships;
+})();
+exports.BaseRelationships = BaseRelationships;
+class Relationships extends BaseRelationships {
+}
+exports.Relationships = Relationships;
+//# sourceMappingURL=relationships.js.map
+
+/***/ }),
+
+/***/ 10187:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Categories = exports.BaseCategories = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseCategories = /* @__PURE__ */ (() => {
+    class BaseCategories extends resource_1.APIResource {
+        /**
+         * Creates a new Source-of-Truth tag category for an account.
+         *
+         * @example
+         * ```ts
+         * const category =
+         *   await client.cloudforceOne.threatEvents.tags.categories.create(
+         *     { account_id: 'account_id', name: 'Actor' },
+         *   );
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/categories/create`, {
+                body,
+                ...options,
+            });
+        }
+        /**
+         * Returns all Source-of-Truth tag categories for an account.
+         *
+         * @example
+         * ```ts
+         * const categories =
+         *   await client.cloudforceOne.threatEvents.tags.categories.list(
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/categories`, {
+                query,
+                ...options,
+            });
+        }
+        /**
+         * Deletes a Source-of-Truth tag category by UUID.
+         *
+         * @example
+         * ```ts
+         * const category =
+         *   await client.cloudforceOne.threatEvents.tags.categories.delete(
+         *     'category_uuid',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        delete(categoryUUID, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/categories/${categoryUUID}`, options);
+        }
+        /**
+         * Updates a Source-of-Truth tag category by UUID.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.cloudforceOne.threatEvents.tags.categories.edit(
+         *     'category_uuid',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        edit(categoryUUID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/categories/${categoryUUID}`, { body, ...options });
+        }
+    }
+    BaseCategories._key = Object.freeze(['cloudforceOne', 'threatEvents', 'tags', 'categories']);
+    return BaseCategories;
+})();
+exports.BaseCategories = BaseCategories;
+class Categories extends BaseCategories {
+}
+exports.Categories = Categories;
+//# sourceMappingURL=categories.js.map
+
+/***/ }),
+
+/***/ 65756:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ByDataset = exports.BaseByDataset = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseByDataset = /* @__PURE__ */ (() => {
+    class BaseByDataset extends resource_1.APIResource {
+        /**
+         * This endpoint is deprecated. Use GET
+         * /:account_id/events/tags/:tag_uuid/indicators with the optional datasetIds query
+         * parameter instead. Returns indicators associated with the provided tag UUID
+         * within a single dataset's indicator shards, with pagination.
+         *
+         * @deprecated Use list instead (GET /accounts/{account_id}/cloudforce-one/events/tags/{tag_uuid}/indicators).
+         */
+        list(tagUUID, params, options) {
+            const { account_id, dataset_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${dataset_id}/tags/${tagUUID}/indicators`, { query, ...options });
+        }
+    }
+    BaseByDataset._key = Object.freeze(['cloudforceOne', 'threatEvents', 'tags', 'indicators', 'byDataset']);
+    return BaseByDataset;
+})();
+exports.BaseByDataset = BaseByDataset;
+class ByDataset extends BaseByDataset {
+}
+exports.ByDataset = ByDataset;
+//# sourceMappingURL=by-dataset.js.map
+
+/***/ }),
+
+/***/ 70754:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Indicators = exports.BaseIndicators = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const ByDatasetAPI = tslib_1.__importStar(__nccwpck_require__(65756));
+const by_dataset_1 = __nccwpck_require__(65756);
+const path_1 = __nccwpck_require__(91121);
+var BaseIndicators = /* @__PURE__ */ (() => {
+    class BaseIndicators extends resource_1.APIResource {
+        /**
+         * Returns indicators associated with the provided tag UUID, with pagination. By
+         * default fans out across every indicator dataset the account can read; pass
+         * datasetIds to scope to specific datasets.
+         *
+         * @example
+         * ```ts
+         * const indicators =
+         *   await client.cloudforceOne.threatEvents.tags.indicators.list(
+         *     'tag_uuid',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(tagUUID, params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/${tagUUID}/indicators`, {
+                query,
+                ...options,
+            });
+        }
+    }
+    BaseIndicators._key = Object.freeze(['cloudforceOne', 'threatEvents', 'tags', 'indicators']);
+    return BaseIndicators;
+})();
+exports.BaseIndicators = BaseIndicators;
+var Indicators = /* @__PURE__ */ (() => {
+    class Indicators extends BaseIndicators {
+        constructor() {
+            super(...arguments);
+            this.byDataset = new ByDatasetAPI.ByDataset(this._client);
+        }
+    }
+    Indicators.ByDataset = by_dataset_1.ByDataset;
+    Indicators.BaseByDataset = by_dataset_1.BaseByDataset;
+    return Indicators;
+})();
+exports.Indicators = Indicators;
+//# sourceMappingURL=indicators.js.map
+
+/***/ }),
+
+/***/ 57058:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Tags = exports.BaseTags = void 0;
+const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const CategoriesAPI = tslib_1.__importStar(__nccwpck_require__(10187));
+const categories_1 = __nccwpck_require__(10187);
+const IndicatorsAPI = tslib_1.__importStar(__nccwpck_require__(70754));
+const indicators_1 = __nccwpck_require__(70754);
 const path_1 = __nccwpck_require__(91121);
 var BaseTags = /* @__PURE__ */ (() => {
     class BaseTags extends resource_1.APIResource {
@@ -43437,6 +45091,60 @@ var BaseTags = /* @__PURE__ */ (() => {
                 ...options,
             });
         }
+        /**
+         * Returns all Source-of-Truth tags for an account. Supports legacy free-text
+         * `search` on tag value and `categoryUuid` exact match, plus a structured
+         * `filters` JSON array for filtering by metadata fields (originCountryISO,
+         * actorCategory, motive, priority, etc.). Country values may be passed as alpha-2,
+         * alpha-3, name, or common alias.
+         *
+         * @example
+         * ```ts
+         * const tags =
+         *   await client.cloudforceOne.threatEvents.tags.list({
+         *     account_id: 'account_id',
+         *   });
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags`, { query, ...options });
+        }
+        /**
+         * Deletes a Source-of-Truth tag by UUID.
+         *
+         * @example
+         * ```ts
+         * const tag =
+         *   await client.cloudforceOne.threatEvents.tags.delete(
+         *     'tag_uuid',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        delete(tagUUID, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/${tagUUID}`, options);
+        }
+        /**
+         * Updates a Source-of-Truth tag by UUID.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.cloudforceOne.threatEvents.tags.edit(
+         *     'tag_uuid',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        edit(tagUUID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/tags/${tagUUID}`, {
+                body,
+                ...options,
+            });
+        }
     }
     BaseTags._key = Object.freeze([
         'cloudforceOne',
@@ -43446,27 +45154,124 @@ var BaseTags = /* @__PURE__ */ (() => {
     return BaseTags;
 })();
 exports.BaseTags = BaseTags;
-class Tags extends BaseTags {
-}
+var Tags = /* @__PURE__ */ (() => {
+    class Tags extends BaseTags {
+        constructor() {
+            super(...arguments);
+            this.categories = new CategoriesAPI.Categories(this._client);
+            this.indicators = new IndicatorsAPI.Indicators(this._client);
+        }
+    }
+    Tags.Categories = categories_1.Categories;
+    Tags.BaseCategories = categories_1.BaseCategories;
+    Tags.Indicators = indicators_1.Indicators;
+    Tags.BaseIndicators = indicators_1.BaseIndicators;
+    return Tags;
+})();
 exports.Tags = Tags;
 //# sourceMappingURL=tags.js.map
 
 /***/ }),
 
-/***/ 76507:
+/***/ 44798:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ByDataset = exports.BaseByDataset = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseByDataset = /* @__PURE__ */ (() => {
+    class BaseByDataset extends resource_1.APIResource {
+        /**
+         * Lists all target industries for a specific dataset
+         *
+         * @example
+         * ```ts
+         * const byDatasets =
+         *   await client.cloudforceOne.threatEvents.targetIndustries.byDataset.list(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(datasetID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/dataset/${datasetID}/targetIndustries`, options);
+        }
+    }
+    BaseByDataset._key = Object.freeze(['cloudforceOne', 'threatEvents', 'targetIndustries', 'byDataset']);
+    return BaseByDataset;
+})();
+exports.BaseByDataset = BaseByDataset;
+class ByDataset extends BaseByDataset {
+}
+exports.ByDataset = ByDataset;
+//# sourceMappingURL=by-dataset.js.map
+
+/***/ }),
+
+/***/ 98619:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Catalog = exports.BaseCatalog = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseCatalog = /* @__PURE__ */ (() => {
+    class BaseCatalog extends resource_1.APIResource {
+        /**
+         * Lists all target industries from industry map catalog
+         *
+         * @example
+         * ```ts
+         * const catalogs =
+         *   await client.cloudforceOne.threatEvents.targetIndustries.catalog.list(
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        list(params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/targetIndustries/catalog`, options);
+        }
+    }
+    BaseCatalog._key = Object.freeze(['cloudforceOne', 'threatEvents', 'targetIndustries', 'catalog']);
+    return BaseCatalog;
+})();
+exports.BaseCatalog = BaseCatalog;
+class Catalog extends BaseCatalog {
+}
+exports.Catalog = Catalog;
+//# sourceMappingURL=catalog.js.map
+
+/***/ }),
+
+/***/ 26270:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.TargetIndustries = exports.BaseTargetIndustries = void 0;
+const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const ByDatasetAPI = tslib_1.__importStar(__nccwpck_require__(44798));
+const by_dataset_1 = __nccwpck_require__(44798);
+const CatalogAPI = tslib_1.__importStar(__nccwpck_require__(98619));
+const catalog_1 = __nccwpck_require__(98619);
 const path_1 = __nccwpck_require__(91121);
 var BaseTargetIndustries = /* @__PURE__ */ (() => {
     class BaseTargetIndustries extends resource_1.APIResource {
         /**
-         * Lists target industries across multiple datasets
+         * Retrieves the catalog of industry classifications used in Cloudforce One threat
+         * intelligence.
          *
          * @example
          * ```ts
@@ -43488,8 +45293,20 @@ var BaseTargetIndustries = /* @__PURE__ */ (() => {
     return BaseTargetIndustries;
 })();
 exports.BaseTargetIndustries = BaseTargetIndustries;
-class TargetIndustries extends BaseTargetIndustries {
-}
+var TargetIndustries = /* @__PURE__ */ (() => {
+    class TargetIndustries extends BaseTargetIndustries {
+        constructor() {
+            super(...arguments);
+            this.byDataset = new ByDatasetAPI.ByDataset(this._client);
+            this.catalog = new CatalogAPI.Catalog(this._client);
+        }
+    }
+    TargetIndustries.ByDataset = by_dataset_1.ByDataset;
+    TargetIndustries.BaseByDataset = by_dataset_1.BaseByDataset;
+    TargetIndustries.Catalog = catalog_1.Catalog;
+    TargetIndustries.BaseCatalog = catalog_1.BaseCatalog;
+    return TargetIndustries;
+})();
 exports.TargetIndustries = TargetIndustries;
 //# sourceMappingURL=target-industries.js.map
 
@@ -43505,30 +45322,40 @@ exports.ThreatEvents = exports.BaseThreatEvents = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const AggregateAPI = tslib_1.__importStar(__nccwpck_require__(41910));
+const aggregate_1 = __nccwpck_require__(41910);
 const AttackersAPI = tslib_1.__importStar(__nccwpck_require__(97845));
 const attackers_1 = __nccwpck_require__(97845);
-const CategoriesAPI = tslib_1.__importStar(__nccwpck_require__(18809));
-const categories_1 = __nccwpck_require__(18809);
 const CountriesAPI = tslib_1.__importStar(__nccwpck_require__(74447));
 const countries_1 = __nccwpck_require__(74447);
 const CronsAPI = tslib_1.__importStar(__nccwpck_require__(76976));
 const crons_1 = __nccwpck_require__(76976);
 const EventTagsAPI = tslib_1.__importStar(__nccwpck_require__(46343));
 const event_tags_1 = __nccwpck_require__(46343);
-const IndicatorTypesAPI = tslib_1.__importStar(__nccwpck_require__(54928));
-const indicator_types_1 = __nccwpck_require__(54928);
+const GraphAPI = tslib_1.__importStar(__nccwpck_require__(25673));
+const graph_1 = __nccwpck_require__(25673);
+const GraphqlAPI = tslib_1.__importStar(__nccwpck_require__(56240));
+const graphql_1 = __nccwpck_require__(56240);
 const InsightsAPI = tslib_1.__importStar(__nccwpck_require__(63656));
 const insights_1 = __nccwpck_require__(63656);
+const QueriesAPI = tslib_1.__importStar(__nccwpck_require__(15277));
+const queries_1 = __nccwpck_require__(15277);
 const RawAPI = tslib_1.__importStar(__nccwpck_require__(80207));
 const raw_1 = __nccwpck_require__(80207);
 const RelateAPI = tslib_1.__importStar(__nccwpck_require__(72740));
 const relate_1 = __nccwpck_require__(72740);
-const TagsAPI = tslib_1.__importStar(__nccwpck_require__(89516));
-const tags_1 = __nccwpck_require__(89516);
-const TargetIndustriesAPI = tslib_1.__importStar(__nccwpck_require__(76507));
-const target_industries_1 = __nccwpck_require__(76507);
+const RelationshipsAPI = tslib_1.__importStar(__nccwpck_require__(62150));
+const relationships_1 = __nccwpck_require__(62150);
+const CategoriesAPI = tslib_1.__importStar(__nccwpck_require__(54324));
+const categories_1 = __nccwpck_require__(54324);
 const DatasetsAPI = tslib_1.__importStar(__nccwpck_require__(19106));
 const datasets_1 = __nccwpck_require__(19106);
+const IndicatorsAPI = tslib_1.__importStar(__nccwpck_require__(99452));
+const indicators_1 = __nccwpck_require__(99452);
+const TagsAPI = tslib_1.__importStar(__nccwpck_require__(57058));
+const tags_1 = __nccwpck_require__(57058);
+const TargetIndustriesAPI = tslib_1.__importStar(__nccwpck_require__(26270));
+const target_industries_1 = __nccwpck_require__(26270);
 const path_1 = __nccwpck_require__(91121);
 var BaseThreatEvents = /* @__PURE__ */ (() => {
     class BaseThreatEvents extends resource_1.APIResource {
@@ -43560,7 +45387,7 @@ var BaseThreatEvents = /* @__PURE__ */ (() => {
         }
         /**
          * Use `datasetId=all` or `datasetId=*` to query all event datasets for the account
-         * (limited to 10). When `datasetId` is unspecified, events are listed from the
+         * (limited to 50). When `datasetId` is unspecified, events are listed from the
          * default Cloudforce One Threat Events dataset. To list existing datasets, use the
          * [`List Datasets`](https://developers.cloudflare.com/api/resources/cloudforce_one/subresources/threat_events/subresources/datasets/methods/list/)
          * endpoint.
@@ -43610,7 +45437,20 @@ var BaseThreatEvents = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Updates an event
+         * This method is deprecated. Please use `event_create_bulk` instead
+         *
+         * @deprecated This endpoint is deprecated and will be removed in a future version.
+         */
+        bulkCreateRelationships(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/cloudforce-one/events/create/bulk/relationships`, {
+                body,
+                ...options,
+            });
+        }
+        /**
+         * Partially updates a threat event in Cloudforce One, modifying specific fields
+         * without replacing the entire event.
          *
          * @example
          * ```ts
@@ -43632,7 +45472,7 @@ var BaseThreatEvents = /* @__PURE__ */ (() => {
          * This Method is deprecated. Please use
          * /events/dataset/:dataset_id/events/:event_id instead.
          *
-         * @deprecated
+         * @deprecated Use datasets.events.get instead (GET /accounts/{account_id}/cloudforce-one/events/dataset/{dataset_id}/events/{event_id}).
          */
         get(eventID, params, options) {
             const { account_id } = params;
@@ -43650,12 +45490,17 @@ var ThreatEvents = /* @__PURE__ */ (() => {
     class ThreatEvents extends BaseThreatEvents {
         constructor() {
             super(...arguments);
+            this.aggregate = new AggregateAPI.Aggregate(this._client);
+            this.graphql = new GraphqlAPI.Graphql(this._client);
+            this.graph = new GraphAPI.Graph(this._client);
+            this.queries = new QueriesAPI.Queries(this._client);
+            this.relationships = new RelationshipsAPI.Relationships(this._client);
+            this.indicators = new IndicatorsAPI.Indicators(this._client);
             this.attackers = new AttackersAPI.Attackers(this._client);
             this.categories = new CategoriesAPI.Categories(this._client);
             this.countries = new CountriesAPI.Countries(this._client);
             this.crons = new CronsAPI.Crons(this._client);
             this.datasets = new DatasetsAPI.Datasets(this._client);
-            this.indicatorTypes = new IndicatorTypesAPI.IndicatorTypes(this._client);
             this.raw = new RawAPI.Raw(this._client);
             this.relate = new RelateAPI.Relate(this._client);
             this.tags = new TagsAPI.Tags(this._client);
@@ -43664,6 +45509,18 @@ var ThreatEvents = /* @__PURE__ */ (() => {
             this.insights = new InsightsAPI.Insights(this._client);
         }
     }
+    ThreatEvents.Aggregate = aggregate_1.Aggregate;
+    ThreatEvents.BaseAggregate = aggregate_1.BaseAggregate;
+    ThreatEvents.Graphql = graphql_1.Graphql;
+    ThreatEvents.BaseGraphql = graphql_1.BaseGraphql;
+    ThreatEvents.Graph = graph_1.Graph;
+    ThreatEvents.BaseGraph = graph_1.BaseGraph;
+    ThreatEvents.Queries = queries_1.Queries;
+    ThreatEvents.BaseQueries = queries_1.BaseQueries;
+    ThreatEvents.Relationships = relationships_1.Relationships;
+    ThreatEvents.BaseRelationships = relationships_1.BaseRelationships;
+    ThreatEvents.Indicators = indicators_1.Indicators;
+    ThreatEvents.BaseIndicators = indicators_1.BaseIndicators;
     ThreatEvents.Attackers = attackers_1.Attackers;
     ThreatEvents.BaseAttackers = attackers_1.BaseAttackers;
     ThreatEvents.Categories = categories_1.Categories;
@@ -43674,8 +45531,6 @@ var ThreatEvents = /* @__PURE__ */ (() => {
     ThreatEvents.BaseCrons = crons_1.BaseCrons;
     ThreatEvents.Datasets = datasets_1.Datasets;
     ThreatEvents.BaseDatasets = datasets_1.BaseDatasets;
-    ThreatEvents.IndicatorTypes = indicator_types_1.IndicatorTypes;
-    ThreatEvents.BaseIndicatorTypes = indicator_types_1.BaseIndicatorTypes;
     ThreatEvents.Raw = raw_1.Raw;
     ThreatEvents.BaseRaw = raw_1.BaseRaw;
     ThreatEvents.Relate = relate_1.Relate;
@@ -43783,7 +45638,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseServices = /* @__PURE__ */ (() => {
     class BaseServices extends resource_1.APIResource {
         /**
-         * Create Workers VPC connectivity service
+         * Creates a new Workers VPC connectivity service in the account.
          *
          * @example
          * ```ts
@@ -43809,7 +45664,7 @@ var BaseServices = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update Workers VPC connectivity service
+         * Updates an existing Workers VPC connectivity service by its ID.
          *
          * @example
          * ```ts
@@ -43838,7 +45693,7 @@ var BaseServices = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List Workers VPC connectivity services
+         * Lists the Workers VPC connectivity services in the account.
          *
          * @example
          * ```ts
@@ -43855,7 +45710,7 @@ var BaseServices = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/connectivity/directory/services`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete Workers VPC connectivity service
+         * Removes a single Workers VPC connectivity service by its ID.
          *
          * @example
          * ```ts
@@ -43873,7 +45728,7 @@ var BaseServices = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Get Workers VPC connectivity service
+         * Fetches a single Workers VPC connectivity service by its ID.
          *
          * @example
          * ```ts
@@ -44744,6 +46599,8 @@ const tslib_1 = __nccwpck_require__(67590);
 const resource_1 = __nccwpck_require__(85550);
 const FallbackOriginAPI = tslib_1.__importStar(__nccwpck_require__(24766));
 const fallback_origin_1 = __nccwpck_require__(24766);
+const QuotaAPI = tslib_1.__importStar(__nccwpck_require__(15305));
+const quota_1 = __nccwpck_require__(15305);
 const CertificatePackAPI = tslib_1.__importStar(__nccwpck_require__(49054));
 const certificate_pack_1 = __nccwpck_require__(49054);
 const pagination_1 = __nccwpck_require__(86242);
@@ -44858,12 +46715,15 @@ var CustomHostnames = /* @__PURE__ */ (() => {
             super(...arguments);
             this.fallbackOrigin = new FallbackOriginAPI.FallbackOrigin(this._client);
             this.certificatePack = new CertificatePackAPI.CertificatePack(this._client);
+            this.quota = new QuotaAPI.Quota(this._client);
         }
     }
     CustomHostnames.FallbackOrigin = fallback_origin_1.FallbackOrigin;
     CustomHostnames.BaseFallbackOrigin = fallback_origin_1.BaseFallbackOrigin;
     CustomHostnames.CertificatePack = certificate_pack_1.CertificatePack;
     CustomHostnames.BaseCertificatePack = certificate_pack_1.BaseCertificatePack;
+    CustomHostnames.Quota = quota_1.Quota;
+    CustomHostnames.BaseQuota = quota_1.BaseQuota;
     return CustomHostnames;
 })();
 exports.CustomHostnames = CustomHostnames;
@@ -44948,6 +46808,51 @@ class FallbackOrigin extends BaseFallbackOrigin {
 }
 exports.FallbackOrigin = FallbackOrigin;
 //# sourceMappingURL=fallback-origin.js.map
+
+/***/ }),
+
+/***/ 15305:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Quota = exports.BaseQuota = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseQuota = /* @__PURE__ */ (() => {
+    class BaseQuota extends resource_1.APIResource {
+        /**
+         * Returns custom hostname quota usage for a zone. The allocated quota is a soft
+         * limit; creating custom hostnames after usage exceeds this limit can still
+         * succeed until the hard cap is reached. Use the exceeded and hard_cap fields to
+         * track when usage is above the soft limit and when new custom hostname creation
+         * will be rejected.
+         *
+         * @example
+         * ```ts
+         * const quota = await client.customHostnames.quota.get({
+         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         * });
+         * ```
+         */
+        get(params, options) {
+            const { zone_id } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/custom_hostnames/quota`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseQuota._key = Object.freeze([
+        'customHostnames',
+        'quota',
+    ]);
+    return BaseQuota;
+})();
+exports.BaseQuota = BaseQuota;
+class Quota extends BaseQuota {
+}
+exports.Quota = Quota;
+//# sourceMappingURL=quota.js.map
 
 /***/ }),
 
@@ -47296,7 +49201,10 @@ const path_1 = __nccwpck_require__(91121);
 var BasePrefixBindings = /* @__PURE__ */ (() => {
     class BasePrefixBindings extends resource_1.APIResource {
         /**
-         * Create a DLS prefix binding
+         * Bind a CIDR from a BYOIP prefix to a region.
+         *
+         * This requires the **IP Prefixes Write** permission in addition to **DLS Write**,
+         * because the binding is created against a BYOIP prefix in Addressing.
          *
          * @example
          * ```ts
@@ -47317,7 +49225,7 @@ var BasePrefixBindings = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List DLS prefix bindings for an account
+         * List the BYOIP prefix bindings configured for an account.
          *
          * @example
          * ```ts
@@ -47334,7 +49242,10 @@ var BasePrefixBindings = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dls/regional_services/prefix_bindings`, (pagination_1.CursorPagination), { query, ...options });
         }
         /**
-         * Delete a DLS prefix binding
+         * Delete a BYOIP prefix binding.
+         *
+         * Like creating a binding, this requires **IP Prefixes Write** in addition to
+         * **DLS Write**.
          *
          * @example
          * ```ts
@@ -47350,7 +49261,10 @@ var BasePrefixBindings = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/dls/regional_services/prefix_bindings/${bindingID}`, options);
         }
         /**
-         * Update a DLS prefix binding
+         * Update the region of an existing BYOIP prefix binding.
+         *
+         * Like creating a binding, this requires **IP Prefixes Write** in addition to
+         * **DLS Write**.
          *
          * @example
          * ```ts
@@ -47372,7 +49286,7 @@ var BasePrefixBindings = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get a DLS prefix binding
+         * Retrieve a single BYOIP prefix binding by ID.
          *
          * @example
          * ```ts
@@ -47455,7 +49369,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseRegions = /* @__PURE__ */ (() => {
     class BaseRegions extends resource_1.APIResource {
         /**
-         * List DLS regions for an account
+         * List the DLS regions (managed and custom) available to an account.
          *
          * @example
          * ```ts
@@ -47472,7 +49386,7 @@ var BaseRegions = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dls/regions`, (pagination_1.CursorPagination), { query, ...options });
         }
         /**
-         * Get a DLS region
+         * Retrieve a single DLS region (managed or custom) by ID or region key.
          *
          * @example
          * ```ts
@@ -47989,12 +49903,12 @@ exports.DNS = exports.BaseDNS = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
-const DNSSECAPI = tslib_1.__importStar(__nccwpck_require__(85810));
-const dnssec_1 = __nccwpck_require__(85810);
 const RecordsAPI = tslib_1.__importStar(__nccwpck_require__(50462));
 const records_1 = __nccwpck_require__(50462);
 const AnalyticsAPI = tslib_1.__importStar(__nccwpck_require__(27179));
 const analytics_1 = __nccwpck_require__(27179);
+const DNSSECAPI = tslib_1.__importStar(__nccwpck_require__(18669));
+const dnssec_1 = __nccwpck_require__(18669);
 const SettingsAPI = tslib_1.__importStar(__nccwpck_require__(81447));
 const settings_1 = __nccwpck_require__(81447);
 const UsageAPI = tslib_1.__importStar(__nccwpck_require__(49015));
@@ -48039,15 +49953,18 @@ exports.DNS = DNS;
 
 /***/ }),
 
-/***/ 85810:
+/***/ 18669:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.DNSSECResource = exports.BaseDNSSECResource = void 0;
+const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const ZskAPI = tslib_1.__importStar(__nccwpck_require__(47041));
+const zsk_1 = __nccwpck_require__(47041);
 const path_1 = __nccwpck_require__(91121);
 var BaseDNSSECResource = /* @__PURE__ */ (() => {
     class BaseDNSSECResource extends resource_1.APIResource {
@@ -48098,10 +50015,65 @@ var BaseDNSSECResource = /* @__PURE__ */ (() => {
     return BaseDNSSECResource;
 })();
 exports.BaseDNSSECResource = BaseDNSSECResource;
-class DNSSECResource extends BaseDNSSECResource {
-}
+var DNSSECResource = /* @__PURE__ */ (() => {
+    class DNSSECResource extends BaseDNSSECResource {
+        constructor() {
+            super(...arguments);
+            this.zsk = new ZskAPI.Zsk(this._client);
+        }
+    }
+    DNSSECResource.Zsk = zsk_1.Zsk;
+    DNSSECResource.BaseZsk = zsk_1.BaseZsk;
+    return DNSSECResource;
+})();
 exports.DNSSECResource = DNSSECResource;
 //# sourceMappingURL=dnssec.js.map
+
+/***/ }),
+
+/***/ 47041:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Zsk = exports.BaseZsk = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseZsk = /* @__PURE__ */ (() => {
+    class BaseZsk extends resource_1.APIResource {
+        /**
+         * List the Zone Signing Keys (ZSKs) that DNSSEC uses for the zone.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const zskListResponse of client.dns.dnssec.zsk.list(
+         *   { zone_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { zone_id } = params;
+            return this._client.getAPIList((0, path_1.path) `/zones/${zone_id}/dnssec/zsk`, (pagination_1.SinglePage), options);
+        }
+    }
+    BaseZsk._key = Object.freeze([
+        'dns',
+        'dnssec',
+        'zsk',
+    ]);
+    return BaseZsk;
+})();
+exports.BaseZsk = BaseZsk;
+class Zsk extends BaseZsk {
+}
+exports.Zsk = Zsk;
+//# sourceMappingURL=zsk.js.map
 
 /***/ }),
 
@@ -48141,8 +50113,12 @@ var BaseRecords = /* @__PURE__ */ (() => {
          * ```
          */
         create(params, options) {
-            const { zone_id, ...body } = params;
-            return this._client.post((0, path_1.path) `/zones/${zone_id}/dns_records`, { body, ...options })._thenUnwrap((obj) => obj.result);
+            const { zone_id, include_shadow_metadata, ...body } = params;
+            return this._client.post((0, path_1.path) `/zones/${zone_id}/dns_records`, {
+                query: { include_shadow_metadata },
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
         /**
          * Overwrite an existing DNS record.
@@ -48168,8 +50144,9 @@ var BaseRecords = /* @__PURE__ */ (() => {
          * ```
          */
         update(dnsRecordID, params, options) {
-            const { zone_id, ...body } = params;
+            const { zone_id, include_shadow_metadata, ...body } = params;
             return this._client.put((0, path_1.path) `/zones/${zone_id}/dns_records/${dnsRecordID}`, {
+                query: { include_shadow_metadata },
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -48233,8 +50210,12 @@ var BaseRecords = /* @__PURE__ */ (() => {
          * ```
          */
         batch(params, options) {
-            const { zone_id, ...body } = params;
-            return this._client.post((0, path_1.path) `/zones/${zone_id}/dns_records/batch`, { body, ...options })._thenUnwrap((obj) => obj.result);
+            const { zone_id, include_shadow_metadata, ...body } = params;
+            return this._client.post((0, path_1.path) `/zones/${zone_id}/dns_records/batch`, {
+                query: { include_shadow_metadata },
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
         /**
          * Update an existing DNS record.
@@ -48260,8 +50241,9 @@ var BaseRecords = /* @__PURE__ */ (() => {
          * ```
          */
         edit(dnsRecordID, params, options) {
-            const { zone_id, ...body } = params;
+            const { zone_id, include_shadow_metadata, ...body } = params;
             return this._client.patch((0, path_1.path) `/zones/${zone_id}/dns_records/${dnsRecordID}`, {
+                query: { include_shadow_metadata },
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -48301,8 +50283,11 @@ var BaseRecords = /* @__PURE__ */ (() => {
          * ```
          */
         get(dnsRecordID, params, options) {
-            const { zone_id } = params;
-            return this._client.get((0, path_1.path) `/zones/${zone_id}/dns_records/${dnsRecordID}`, options)._thenUnwrap((obj) => obj.result);
+            const { zone_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/dns_records/${dnsRecordID}`, {
+                query,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
         /**
          * You can upload your
@@ -49890,6 +51875,67 @@ exports.SPF = SPF;
 
 /***/ }),
 
+/***/ 70137:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AccountRules = exports.BaseAccountRules = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const error_1 = __nccwpck_require__(34314);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseAccountRules = /* @__PURE__ */ (() => {
+    class BaseAccountRules extends resource_1.APIResource {
+        /**
+         * Lists existing routing rules across all zones in the account or zone.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const accountRule of client.emailRouting.accountRules.list(
+         *   { account_id: 'account_id' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params = {}, options) {
+            const { account_id, zone_id, ...query } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.getAPIList((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/email/routing/rules`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+    }
+    BaseAccountRules._key = Object.freeze([
+        'emailRouting',
+        'accountRules',
+    ]);
+    return BaseAccountRules;
+})();
+exports.BaseAccountRules = BaseAccountRules;
+class AccountRules extends BaseAccountRules {
+}
+exports.AccountRules = AccountRules;
+//# sourceMappingURL=account-rules.js.map
+
+/***/ }),
+
 /***/ 73924:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -50103,6 +52149,8 @@ exports.EmailRouting = exports.BaseEmailRouting = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const AccountRulesAPI = tslib_1.__importStar(__nccwpck_require__(70137));
+const account_rules_1 = __nccwpck_require__(70137);
 const AddressesAPI = tslib_1.__importStar(__nccwpck_require__(73924));
 const addresses_1 = __nccwpck_require__(73924);
 const DNSAPI = tslib_1.__importStar(__nccwpck_require__(4399));
@@ -50112,6 +52160,20 @@ const rules_1 = __nccwpck_require__(435);
 const path_1 = __nccwpck_require__(91121);
 var BaseEmailRouting = /* @__PURE__ */ (() => {
     class BaseEmailRouting extends resource_1.APIResource {
+        /**
+         * Update the settings for your Email Routing zone.
+         *
+         * @example
+         * ```ts
+         * const settings = await client.emailRouting.update({
+         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         * });
+         * ```
+         */
+        update(params, options) {
+            const { zone_id, ...body } = params;
+            return this._client.put((0, path_1.path) `/zones/${zone_id}/email/routing`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
         /**
          * Disable your Email Routing zone. Also removes additional MX records previously
          * required for Email Routing to work.
@@ -50124,6 +52186,20 @@ var BaseEmailRouting = /* @__PURE__ */ (() => {
                 body: body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Update the settings for your Email Routing zone.
+         *
+         * @example
+         * ```ts
+         * const settings = await client.emailRouting.edit({
+         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         * });
+         * ```
+         */
+        edit(params, options) {
+            const { zone_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/zones/${zone_id}/email/routing`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
          * Enable you Email Routing zone. Add and lock the necessary MX and SPF records.
@@ -50172,6 +52248,7 @@ var EmailRouting = /* @__PURE__ */ (() => {
             super(...arguments);
             this.dns = new DNSAPI.DNS(this._client);
             this.rules = new RulesAPI.Rules(this._client);
+            this.accountRules = new AccountRulesAPI.AccountRules(this._client);
             this.addresses = new AddressesAPI.Addresses(this._client);
         }
     }
@@ -50179,6 +52256,8 @@ var EmailRouting = /* @__PURE__ */ (() => {
     EmailRouting.BaseDNS = dns_1.BaseDNS;
     EmailRouting.Rules = rules_1.Rules;
     EmailRouting.BaseRules = rules_1.BaseRules;
+    EmailRouting.AccountRules = account_rules_1.AccountRules;
+    EmailRouting.BaseAccountRules = account_rules_1.BaseAccountRules;
     EmailRouting.Addresses = addresses_1.Addresses;
     EmailRouting.BaseAddresses = addresses_1.BaseAddresses;
     return EmailRouting;
@@ -50201,9 +52280,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseCatchAlls = /* @__PURE__ */ (() => {
     class BaseCatchAlls extends resource_1.APIResource {
         /**
-         * Enable or disable catch-all routing rule, or change action to forward to
-         * specific destination address. Forward actions require all destination addresses
-         * to be verified.
+         * Enable or disable catch-all routing rule, or change action to forward to a
+         * specific destination address. Forward actions require exactly one verified
+         * destination address.
          *
          * @example
          * ```ts
@@ -50265,6 +52344,8 @@ const tslib_1 = __nccwpck_require__(67590);
 const resource_1 = __nccwpck_require__(85550);
 const CatchAllsAPI = tslib_1.__importStar(__nccwpck_require__(96208));
 const catch_alls_1 = __nccwpck_require__(96208);
+const error_1 = __nccwpck_require__(34314);
+const pagination_1 = __nccwpck_require__(86242);
 const path_1 = __nccwpck_require__(91121);
 var BaseRules = /* @__PURE__ */ (() => {
     class BaseRules extends resource_1.APIResource {
@@ -50272,7 +52353,7 @@ var BaseRules = /* @__PURE__ */ (() => {
          * Rules consist of a set of criteria for matching emails (such as an email being
          * sent to a specific custom email address) plus a set of actions to take on the
          * email (like forwarding it to a specific destination address). Forward actions
-         * require all destination addresses to be verified.
+         * require exactly one verified destination address.
          *
          * @example
          * ```ts
@@ -50290,7 +52371,7 @@ var BaseRules = /* @__PURE__ */ (() => {
         }
         /**
          * Update actions and matches, or enable/disable specific routing rules. Forward
-         * actions require all destination addresses to be verified.
+         * actions require exactly one verified destination address.
          *
          * @example
          * ```ts
@@ -50311,6 +52392,38 @@ var BaseRules = /* @__PURE__ */ (() => {
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Lists existing routing rules across all zones in the account or zone.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const accountRule of client.emailRouting.rules.list(
+         *   { account_id: 'account_id' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params = {}, options) {
+            const { account_id, zone_id, ...query } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.getAPIList((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/email/routing/rules`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
          * Delete a specific routing rule.
@@ -50437,7 +52550,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseBulk = /* @__PURE__ */ (() => {
     class BaseBulk extends resource_1.APIResource {
         /**
-         * Create a bulk action job
+         * Creates a new bulk action job to move or release messages that match the
+         * provided search parameters.
          *
          * @example
          * ```ts
@@ -50457,7 +52571,7 @@ var BaseBulk = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List bulk action jobs
+         * Returns a paginated list of bulk action jobs for the account.
          *
          * @example
          * ```ts
@@ -50493,7 +52607,7 @@ var BaseBulk = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/email-security/investigate/bulk/${jobID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get bulk action job details
+         * Returns the status and details of a specific bulk action job.
          *
          * @example
          * ```ts
@@ -50549,8 +52663,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseCancel = /* @__PURE__ */ (() => {
     class BaseCancel extends resource_1.APIResource {
         /**
-         * Marks the job as cancelled and stops any pending message processing. The job
-         * record remains visible in list and detail endpoints.
+         * Cancels the job, marking it as cancelled and stopping any pending message
+         * processing. The job record remains visible in list and detail endpoints.
          *
          * @example
          * ```ts
@@ -50596,7 +52710,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseMessages = /* @__PURE__ */ (() => {
     class BaseMessages extends resource_1.APIResource {
         /**
-         * List messages for a bulk action job
+         * Returns the individual messages associated with a bulk action job, including
+         * their processing status.
          *
          * @example
          * ```ts
@@ -51029,9 +53144,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseRelease = /* @__PURE__ */ (() => {
     class BaseRelease extends resource_1.APIResource {
         /**
-         * Releases one or more quarantined messages, delivering them to the intended
-         * recipients. Use when a message was incorrectly quarantined. Returns delivery
-         * status for each recipient.
+         * Delivers one or more quarantined messages to their intended recipients, for
+         * cases where a message was incorrectly quarantined. The response includes
+         * delivery status for each recipient.
          *
          * @example
          * ```ts
@@ -51501,6 +53616,16 @@ var BaseDomains = /* @__PURE__ */ (() => {
         delete(domainID, params, options) {
             const { account_id } = params;
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/email-security/settings/domains/${domainID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Removes protection from multiple email domains. Deprecated; use the batch
+         * endpoint instead.
+         *
+         * @deprecated
+         */
+        bulkDelete(params, options) {
+            const { account_id } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/email-security/settings/domains`, (pagination_1.SinglePage), { method: 'delete', ...options });
         }
         /**
          * Updates configuration for a protected email domain. Only provided fields will be
@@ -52174,7 +54299,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseEmailSending = /* @__PURE__ */ (() => {
     class BaseEmailSending extends resource_1.APIResource {
         /**
-         * Send an email
+         * Send an email for the specified account using the structured builder. Provide
+         * the sender, recipients, subject, and at least one of text or html; attachments
+         * are optional.
          *
          * @example
          * ```ts
@@ -52193,7 +54320,8 @@ var BaseEmailSending = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Send a raw MIME email
+         * Send a raw RFC 5322 (MIME) email for the specified account. Provide the full
+         * MIME message plus the SMTP envelope (from and recipients).
          *
          * @example
          * ```ts
@@ -52300,7 +54428,10 @@ var BaseSubdomains = /* @__PURE__ */ (() => {
         /**
          * Creates a new sending subdomain or re-enables sending on an existing subdomain
          * that had it disabled. If zone-level Email Sending has not been enabled yet, the
-         * zone flag is automatically set when the entitlement is present.
+         * zone flag is automatically set when the entitlement is present. A leftmost
+         * wildcard such as `*.example.com` is accepted only for accounts with wildcard
+         * Email Sending enabled. Wildcard senders share the base domain's DKIM signing
+         * identity and `cf-bounce.<base>` return path.
          *
          * @example
          * ```ts
@@ -53157,10 +55288,10 @@ const path_1 = __nccwpck_require__(91121);
 var BaseOverrides = /* @__PURE__ */ (() => {
     class BaseOverrides extends resource_1.APIResource {
         /**
-         * Creates a URI-based WAF override for a zone.
+         * **This endpoint has been deprecated and returns 410 Gone. Please use the
+         * [Rulesets API](https://developers.cloudflare.com/ruleset-engine/) instead.**
          *
-         * **Note:** Applies only to the
-         * [previous version of WAF managed rules](https://developers.cloudflare.com/support/firewall/managed-rules-web-application-firewall-waf/understanding-waf-managed-rules-web-application-firewall/).
+         * Previously created a URI-based WAF override for a zone.
          *
          * @deprecated
          */
@@ -53169,10 +55300,10 @@ var BaseOverrides = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/zones/${zone_id}/firewall/waf/overrides`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates an existing URI-based WAF override.
+         * **This endpoint has been deprecated and returns 410 Gone. Please use the
+         * [Rulesets API](https://developers.cloudflare.com/ruleset-engine/) instead.**
          *
-         * **Note:** Applies only to the
-         * [previous version of WAF managed rules](https://developers.cloudflare.com/support/firewall/managed-rules-web-application-firewall-waf/understanding-waf-managed-rules-web-application-firewall/).
+         * Previously updated an existing URI-based WAF override.
          *
          * @deprecated
          */
@@ -53184,10 +55315,10 @@ var BaseOverrides = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetches the URI-based WAF overrides in a zone.
+         * **This endpoint has been deprecated and returns 410 Gone. Please use the
+         * [Rulesets API](https://developers.cloudflare.com/ruleset-engine/) instead.**
          *
-         * **Note:** Applies only to the
-         * [previous version of WAF managed rules](https://developers.cloudflare.com/support/firewall/managed-rules-web-application-firewall-waf/understanding-waf-managed-rules-web-application-firewall/).
+         * Previously fetched the URI-based WAF overrides in a zone.
          *
          * @deprecated
          */
@@ -53196,10 +55327,10 @@ var BaseOverrides = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/zones/${zone_id}/firewall/waf/overrides`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Deletes an existing URI-based WAF override.
+         * **This endpoint has been deprecated and returns 410 Gone. Please use the
+         * [Rulesets API](https://developers.cloudflare.com/ruleset-engine/) instead.**
          *
-         * **Note:** Applies only to the
-         * [previous version of WAF managed rules](https://developers.cloudflare.com/support/firewall/managed-rules-web-application-firewall-waf/understanding-waf-managed-rules-web-application-firewall/).
+         * Previously deleted an existing URI-based WAF override.
          *
          * @deprecated
          */
@@ -53208,10 +55339,10 @@ var BaseOverrides = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/zones/${zone_id}/firewall/waf/overrides/${overridesID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetches the details of a URI-based WAF override.
+         * **This endpoint has been deprecated and returns 410 Gone. Please use the
+         * [Rulesets API](https://developers.cloudflare.com/ruleset-engine/) instead.**
          *
-         * **Note:** Applies only to the
-         * [previous version of WAF managed rules](https://developers.cloudflare.com/support/firewall/managed-rules-web-application-firewall-waf/understanding-waf-managed-rules-web-application-firewall/).
+         * Previously fetched the details of a URI-based WAF override.
          *
          * @deprecated
          */
@@ -53587,9 +55718,8 @@ var BaseEvaluate = /* @__PURE__ */ (() => {
     class BaseEvaluate extends resource_1.APIResource {
         /**
          * Evaluates a flag against the provided context. Pass context attributes as query
-         * parameters; boolean and numeric strings are coerced automatically. For
-         * low-latency in-Worker evaluation, prefer the Flagship binding over this
-         * endpoint.
+         * parameters; values are forwarded as strings. For low-latency in-Worker
+         * evaluation, prefer the Flagship binding over this endpoint.
          */
         get(appID, params, options) {
             const { account_id, ...query } = params;
@@ -53700,7 +55830,7 @@ var BaseFlags = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/flagship/apps/${appID}/flags`, (pagination_1.CursorPaginationAfter), { query, ...options });
         }
         /**
-         * Permanently deletes a flag. Subsequent evaluations fall back to the
+         * Deletes a flag permanently. Subsequent evaluations fall back to the
          * caller-supplied default. Cannot be undone.
          */
         delete(flagKey, params, options) {
@@ -54275,6 +56405,13 @@ var BaseTLS = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
+         * List the requested TLS setting for the hostnames under this zone.
+         */
+        list(settingID, params, options) {
+            const { zone_id } = params;
+            return this._client.getAPIList((0, path_1.path) `/zones/${zone_id}/hostnames/settings/${settingID}`, (pagination_1.SinglePage), options);
+        }
+        /**
          * Delete the tls setting value for the hostname.
          */
         delete(hostname, params, options) {
@@ -54282,11 +56419,11 @@ var BaseTLS = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/zones/${zone_id}/hostnames/settings/${setting_id}/${hostname}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List the requested TLS setting for the hostnames under this zone.
+         * Get the requested TLS setting for the hostname.
          */
-        get(settingID, params, options) {
-            const { zone_id } = params;
-            return this._client.getAPIList((0, path_1.path) `/zones/${zone_id}/hostnames/settings/${settingID}`, (pagination_1.SinglePage), options);
+        get(hostname, params, options) {
+            const { zone_id, setting_id } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/hostnames/settings/${setting_id}/${hostname}`, options)._thenUnwrap((obj) => obj.result);
         }
     }
     BaseTLS._key = Object.freeze([
@@ -54344,7 +56481,11 @@ var BaseConfigs = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates and returns the specified Hyperdrive configuration.
+         * Replaces and returns the specified Hyperdrive configuration. The request must
+         * include the name and complete origin connection details. Omitted caching
+         * settings are reset to their defaults, while omitted mTLS settings and origin
+         * connection limits are preserved. Use the update operation to modify only
+         * selected fields.
          *
          * @example
          * ```ts
@@ -54386,8 +56527,8 @@ var BaseConfigs = /* @__PURE__ */ (() => {
          * ```
          */
         list(params, options) {
-            const { account_id } = params;
-            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/hyperdrive/configs`, (pagination_1.SinglePage), options);
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/hyperdrive/configs`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
          * Deletes the specified Hyperdrive.
@@ -54405,8 +56546,8 @@ var BaseConfigs = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/hyperdrive/configs/${hyperdriveID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Patches and returns the specified Hyperdrive configuration. Custom caching
-         * settings are not kept if caching is disabled.
+         * Updates and returns the specified fields of the Hyperdrive configuration. Custom
+         * caching settings are not kept if caching is disabled.
          *
          * @example
          * ```ts
@@ -55343,8 +57484,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseBlobs = /* @__PURE__ */ (() => {
     class BaseBlobs extends resource_1.APIResource {
         /**
-         * Fetch base image. For most images this will be the originally uploaded file. For
-         * larger images it can be a near-lossless version of the original.
+         * Download an image from CF Images. For most images this will be the originally
+         * uploaded file. For larger images it can be a near-lossless version of the
+         * original.
          *
          * @example
          * ```ts
@@ -55393,7 +57535,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseKeys = /* @__PURE__ */ (() => {
     class BaseKeys extends resource_1.APIResource {
         /**
-         * Create a new signing key with specified name. Returns all keys available.
+         * Create a new CF Images signing key with specified name. Returns all keys
+         * available.
          *
          * @example
          * ```ts
@@ -55407,7 +57550,7 @@ var BaseKeys = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/images/v1/keys/${signingKeyName}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Lists your signing keys. These can be found on your Cloudflare Images dashboard.
+         * List your CF Images signing keys.
          *
          * @example
          * ```ts
@@ -55421,8 +57564,8 @@ var BaseKeys = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/images/v1/keys`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Delete signing key with specified name. Returns all keys available. When last
-         * key is removed, a new default signing key will be generated.
+         * Delete a CF Images signing key with specified name. Returns all keys available.
+         * When the last key is removed, a new default signing key will be generated.
          *
          * @example
          * ```ts
@@ -55519,9 +57662,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseV1 = /* @__PURE__ */ (() => {
     class BaseV1 extends resource_1.APIResource {
         /**
-         * Upload an image with up to 10 Megabytes using a single HTTP POST
-         * (multipart/form-data) request. An image can be uploaded by sending an image file
-         * or passing an accessible to an API url.
+         * Upload an image to CF Images. Images up to 10 Megabytes can be uploaded using a
+         * single HTTP POST (multipart/form-data) request by sending an image file or
+         * passing a URL accessible to the API.
          *
          * @example
          * ```ts
@@ -55560,8 +57703,8 @@ var BaseV1 = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/images/v1/${imageID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update image access control. On access control change, all copies of the image
-         * are purged from cache.
+         * Update a CF Images image's metadata, creator, or access control. On access
+         * control change, all copies of the image are purged from cache.
          *
          * @example
          * ```ts
@@ -55578,7 +57721,7 @@ var BaseV1 = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetch details for a single image.
+         * Fetch details for a CF Images image.
          *
          * @example
          * ```ts
@@ -55634,7 +57777,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseVariants = /* @__PURE__ */ (() => {
     class BaseVariants extends resource_1.APIResource {
         /**
-         * Specify variants that allow you to resize images for different use cases.
+         * Create a CF Images variant that allows you to resize images for different use
+         * cases.
          *
          * @example
          * ```ts
@@ -55658,7 +57802,7 @@ var BaseVariants = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Lists existing variants.
+         * List existing CF Images variants.
          *
          * @example
          * ```ts
@@ -55672,7 +57816,8 @@ var BaseVariants = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/images/v1/variants`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Deleting a variant purges the cache for all images associated with the variant.
+         * Delete a CF Images variant. This will purge the cache for all images associated
+         * with the variant.
          *
          * @example
          * ```ts
@@ -55687,7 +57832,8 @@ var BaseVariants = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/images/v1/variants/${variantID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updating a variant purges the cache for all images associated with the variant.
+         * Update a CF Images variant. This will purge the cache for all images associated
+         * with the variant.
          *
          * @example
          * ```ts
@@ -55713,7 +57859,7 @@ var BaseVariants = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetch details for a single variant.
+         * Fetch details for a CF Images variant.
          *
          * @example
          * ```ts
@@ -55809,9 +57955,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseV2 = /* @__PURE__ */ (() => {
     class BaseV2 extends resource_1.APIResource {
         /**
-         * List up to 10000 images with up to 1000 results per page. Use the optional
-         * parameters below to get a specific range of images. Pagination is supported via
-         * continuation_token.
+         * List up to 10000 images from CF Images, with up to 1000 results per page. Use
+         * the optional parameters below to get a specific range of images. Pagination is
+         * supported via continuation_token.
          *
          * **Metadata Filtering (Optional):**
          *
@@ -55910,11 +58056,11 @@ exports.V2 = V2;
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.BaseConnectivity = exports.Connectivity = exports.BaseCloudforceOne = exports.CloudforceOne = exports.BaseCloudConnector = exports.CloudConnector = exports.BaseClientCertificates = exports.ClientCertificates = exports.BaseCertificateAuthorities = exports.CertificateAuthorities = exports.BaseCalls = exports.Calls = exports.BaseCache = exports.Cache = exports.BaseBrowserRendering = exports.BrowserRendering = exports.BaseBrandProtection = exports.BrandProtection = exports.BaseBotnetFeed = exports.BotnetFeed = exports.BaseBotManagement = exports.BotManagement = exports.BaseBilling = exports.Billing = exports.BaseAuditLogs = exports.AuditLogs = exports.BaseArgo = exports.Argo = exports.BaseAlerting = exports.Alerting = exports.BaseAddressing = exports.Addressing = exports.BaseAccounts = exports.Accounts = exports.BaseAbuseReports = exports.AbuseReports = exports.BaseAPIGateway = exports.APIGateway = exports.BaseAISecurity = exports.AISecurity = exports.BaseAISearch = exports.AISearch = exports.BaseAIGateway = exports.AIGateway = exports.BaseAIAudit = exports.AIAudit = exports.BaseAI = exports.AI = exports.BaseACM = exports.ACM = void 0;
-exports.BaseHealthchecks = exports.Healthchecks = exports.BaseGoogleTagGateway = exports.GoogleTagGateway = exports.BaseFraud = exports.Fraud = exports.BaseFlagship = exports.Flagship = exports.BaseFirewall = exports.Firewall = exports.BaseFilters = exports.Filters = exports.BaseEmailSending = exports.EmailSending = exports.BaseEmailSecurity = exports.EmailSecurity = exports.BaseEmailRouting = exports.EmailRouting = exports.BaseEmailAuth = exports.EmailAuth = exports.BaseDurableObjects = exports.DurableObjects = exports.BaseDiagnostics = exports.Diagnostics = exports.BaseDNSFirewall = exports.DNSFirewall = exports.BaseDNS = exports.DNS = exports.BaseDLS = exports.DLS = exports.BaseDDoSProtection = exports.DDoSProtection = exports.BaseDCVDelegation = exports.DCVDelegation = exports.BaseD1Resource = exports.D1Resource = exports.BaseCustomPages = exports.CustomPages = exports.BaseCustomNameservers = exports.CustomNameservers = exports.BaseCustomHostnames = exports.CustomHostnames = exports.BaseCustomCsrs = exports.CustomCsrs = exports.BaseCustomCertificates = exports.CustomCertificates = exports.BaseCsamScanner = exports.CsamScanner = exports.BaseContentScanning = exports.ContentScanning = void 0;
-exports.BaseOriginTLSComplianceModes = exports.OriginTLSComplianceModes = exports.BaseOriginTLSClientAuth = exports.OriginTLSClientAuth = exports.BaseOriginPostQuantumEncryption = exports.OriginPostQuantumEncryption = exports.BaseOriginCACertificates = exports.OriginCACertificates = exports.BaseOrganizations = exports.Organizations = exports.BaseNetworkInterconnects = exports.NetworkInterconnects = exports.BaseMoQ = exports.MoQ = exports.BaseMemberships = exports.Memberships = exports.BaseManagedTransforms = exports.ManagedTransforms = exports.BaseMagicTransit = exports.MagicTransit = exports.BaseMagicNetworkMonitoring = exports.MagicNetworkMonitoring = exports.BaseMagicCloudNetworking = exports.MagicCloudNetworking = exports.BaseMTLSCertificates = exports.MTLSCertificates = exports.BaseLogs = exports.Logs = exports.BaseLogpush = exports.Logpush = exports.BaseLoadBalancers = exports.LoadBalancers = exports.BaseLeakedCredentialChecks = exports.LeakedCredentialChecks = exports.BaseKeylessCertificates = exports.KeylessCertificates = exports.BaseKV = exports.KV = exports.BaseIntel = exports.Intel = exports.BaseImages = exports.Images = exports.BaseIPs = exports.IPs = exports.BaseIAM = exports.IAM = exports.BaseHyperdriveResource = exports.HyperdriveResource = exports.BaseHostnames = exports.Hostnames = void 0;
-exports.BaseSpeed = exports.Speed = exports.BaseSpectrum = exports.Spectrum = exports.BaseSnippets = exports.Snippets = exports.BaseSecurityTXT = exports.SecurityTXT = exports.BaseSecurityCenter = exports.SecurityCenter = exports.BaseSecretsStore = exports.SecretsStore = exports.BaseSchemaValidation = exports.SchemaValidation = exports.BaseSSL = exports.SSL = exports.BaseRulesets = exports.Rulesets = exports.BaseRules = exports.Rules = exports.BaseResourceTagging = exports.ResourceTagging = exports.BaseResourceSharing = exports.ResourceSharing = exports.BaseRequestTracers = exports.RequestTracers = exports.BaseRegistrar = exports.Registrar = exports.BaseRealtimeKit = exports.RealtimeKit = exports.BaseRateLimits = exports.RateLimits = exports.BaseRadar = exports.Radar = exports.BaseRUM = exports.RUM = exports.BaseR2DataCatalog = exports.R2DataCatalog = exports.BaseR2 = exports.R2 = exports.BaseQueues = exports.Queues = exports.BasePipelines = exports.Pipelines = exports.BasePages = exports.Pages = exports.BasePageShield = exports.PageShield = exports.BasePageRules = exports.PageRules = void 0;
-exports.BaseZones = exports.Zones = exports.BaseZeroTrust = exports.ZeroTrust = exports.BaseZaraz = exports.Zaraz = exports.BaseWorkflows = exports.Workflows = exports.BaseWorkersForPlatforms = exports.WorkersForPlatforms = exports.BaseWorkers = exports.Workers = exports.BaseWeb3 = exports.Web3 = exports.BaseWaitingRooms = exports.WaitingRooms = exports.BaseVulnerabilityScanner = exports.VulnerabilityScanner = exports.BaseVectorize = exports.Vectorize = exports.BaseUser = exports.User = exports.BaseURLScanner = exports.URLScanner = exports.BaseURLNormalization = exports.URLNormalization = exports.BaseTurnstile = exports.Turnstile = exports.BaseTokenValidation = exports.TokenValidation = exports.BaseTenants = exports.Tenants = exports.BaseTenantCustomNameservers = exports.TenantCustomNameservers = exports.BaseStream = exports.Stream = void 0;
+exports.BaseCloudforceOne = exports.CloudforceOne = exports.BaseCloudConnector = exports.CloudConnector = exports.BaseClientCertificates = exports.ClientCertificates = exports.BaseCertificateAuthorities = exports.CertificateAuthorities = exports.BaseCalls = exports.Calls = exports.BaseCache = exports.Cache = exports.BaseBrowserRendering = exports.BrowserRendering = exports.BaseBrandProtection = exports.BrandProtection = exports.BaseBotnetFeed = exports.BotnetFeed = exports.BaseBotManagement = exports.BotManagement = exports.BaseBilling = exports.Billing = exports.BaseAuditLogs = exports.AuditLogs = exports.BaseArgo = exports.Argo = exports.BaseAnalyticsQuery = exports.AnalyticsQuery = exports.BaseAlerting = exports.Alerting = exports.BaseAddressing = exports.Addressing = exports.BaseAccounts = exports.Accounts = exports.BaseAbuseReports = exports.AbuseReports = exports.BaseAPIGateway = exports.APIGateway = exports.BaseAISecurity = exports.AISecurity = exports.BaseAISearch = exports.AISearch = exports.BaseAIGateway = exports.AIGateway = exports.BaseAIAudit = exports.AIAudit = exports.BaseAI = exports.AI = exports.BaseACM = exports.ACM = void 0;
+exports.BaseGoogleTagGateway = exports.GoogleTagGateway = exports.BaseFraud = exports.Fraud = exports.BaseFlagship = exports.Flagship = exports.BaseFirewall = exports.Firewall = exports.BaseFilters = exports.Filters = exports.BaseEmailSending = exports.EmailSending = exports.BaseEmailSecurity = exports.EmailSecurity = exports.BaseEmailRouting = exports.EmailRouting = exports.BaseEmailAuth = exports.EmailAuth = exports.BaseDurableObjects = exports.DurableObjects = exports.BaseDiagnostics = exports.Diagnostics = exports.BaseDNSFirewall = exports.DNSFirewall = exports.BaseDNS = exports.DNS = exports.BaseDLS = exports.DLS = exports.BaseDDoSProtection = exports.DDoSProtection = exports.BaseDCVDelegation = exports.DCVDelegation = exports.BaseD1Resource = exports.D1Resource = exports.BaseCustomPages = exports.CustomPages = exports.BaseCustomNameservers = exports.CustomNameservers = exports.BaseCustomHostnames = exports.CustomHostnames = exports.BaseCustomCsrs = exports.CustomCsrs = exports.BaseCustomCertificates = exports.CustomCertificates = exports.BaseCsamScanner = exports.CsamScanner = exports.BaseContentScanning = exports.ContentScanning = exports.BaseConnectivity = exports.Connectivity = void 0;
+exports.BaseOriginTLSClientAuth = exports.OriginTLSClientAuth = exports.BaseOriginPostQuantumEncryption = exports.OriginPostQuantumEncryption = exports.BaseOriginCACertificates = exports.OriginCACertificates = exports.BaseOrganizations = exports.Organizations = exports.BaseNetworkInterconnects = exports.NetworkInterconnects = exports.BaseMoQ = exports.MoQ = exports.BaseMemberships = exports.Memberships = exports.BaseManagedTransforms = exports.ManagedTransforms = exports.BaseMagicTransit = exports.MagicTransit = exports.BaseMagicNetworkMonitoring = exports.MagicNetworkMonitoring = exports.BaseMagicCloudNetworking = exports.MagicCloudNetworking = exports.BaseMTLSCertificates = exports.MTLSCertificates = exports.BaseLogs = exports.Logs = exports.BaseLogpush = exports.Logpush = exports.BaseLoadBalancers = exports.LoadBalancers = exports.BaseLeakedCredentialChecks = exports.LeakedCredentialChecks = exports.BaseKeylessCertificates = exports.KeylessCertificates = exports.BaseKV = exports.KV = exports.BaseIntel = exports.Intel = exports.BaseImages = exports.Images = exports.BaseIPs = exports.IPs = exports.BaseIAM = exports.IAM = exports.BaseHyperdriveResource = exports.HyperdriveResource = exports.BaseHostnames = exports.Hostnames = exports.BaseHealthchecks = exports.Healthchecks = void 0;
+exports.BaseSecurityTXT = exports.SecurityTXT = exports.BaseSecurityCenter = exports.SecurityCenter = exports.BaseSecretsStore = exports.SecretsStore = exports.BaseSchemaValidation = exports.SchemaValidation = exports.BaseSSL = exports.SSL = exports.BaseRulesets = exports.Rulesets = exports.BaseRules = exports.Rules = exports.BaseResourceTagging = exports.ResourceTagging = exports.BaseResourceSharing = exports.ResourceSharing = exports.BaseRequestTracers = exports.RequestTracers = exports.BaseRegistrarSandbox = exports.RegistrarSandbox = exports.BaseRegistrar = exports.Registrar = exports.BaseRealtimeKit = exports.RealtimeKit = exports.BaseRateLimits = exports.RateLimits = exports.BaseRadar = exports.Radar = exports.BaseRUM = exports.RUM = exports.BaseR2DataCatalog = exports.R2DataCatalog = exports.BaseR2 = exports.R2 = exports.BaseQueues = exports.Queues = exports.BasePrecursor = exports.Precursor = exports.BasePipelines = exports.Pipelines = exports.BasePages = exports.Pages = exports.BasePageShield = exports.PageShield = exports.BasePageRules = exports.PageRules = exports.BaseOriginTLSComplianceModes = exports.OriginTLSComplianceModes = void 0;
+exports.BaseZones = exports.Zones = exports.BaseZeroTrust = exports.ZeroTrust = exports.BaseZaraz = exports.Zaraz = exports.BaseWorkflows = exports.Workflows = exports.BaseWorkersForPlatforms = exports.WorkersForPlatforms = exports.BaseWorkers = exports.Workers = exports.BaseWeb3 = exports.Web3 = exports.BaseWaitingRooms = exports.WaitingRooms = exports.BaseVulnerabilityScanner = exports.VulnerabilityScanner = exports.BaseVectorize = exports.Vectorize = exports.BaseUser = exports.User = exports.BaseURLScanner = exports.URLScanner = exports.BaseURLNormalization = exports.URLNormalization = exports.BaseTurnstile = exports.Turnstile = exports.BaseTokenValidation = exports.TokenValidation = exports.BaseTenants = exports.Tenants = exports.BaseTenantCustomNameservers = exports.TenantCustomNameservers = exports.BaseStream = exports.Stream = exports.BaseSpeed = exports.Speed = exports.BaseSpectrum = exports.Spectrum = exports.BaseSnippets = exports.Snippets = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 tslib_1.__exportStar(__nccwpck_require__(8575), exports);
@@ -55951,6 +58097,9 @@ Object.defineProperty(exports, "BaseAddressing", ({ enumerable: true, get: funct
 var alerting_1 = __nccwpck_require__(13361);
 Object.defineProperty(exports, "Alerting", ({ enumerable: true, get: function () { return alerting_1.Alerting; } }));
 Object.defineProperty(exports, "BaseAlerting", ({ enumerable: true, get: function () { return alerting_1.BaseAlerting; } }));
+var analytics_query_1 = __nccwpck_require__(32387);
+Object.defineProperty(exports, "AnalyticsQuery", ({ enumerable: true, get: function () { return analytics_query_1.AnalyticsQuery; } }));
+Object.defineProperty(exports, "BaseAnalyticsQuery", ({ enumerable: true, get: function () { return analytics_query_1.BaseAnalyticsQuery; } }));
 var argo_1 = __nccwpck_require__(13995);
 Object.defineProperty(exports, "Argo", ({ enumerable: true, get: function () { return argo_1.Argo; } }));
 Object.defineProperty(exports, "BaseArgo", ({ enumerable: true, get: function () { return argo_1.BaseArgo; } }));
@@ -56155,6 +58304,9 @@ Object.defineProperty(exports, "BasePages", ({ enumerable: true, get: function (
 var pipelines_1 = __nccwpck_require__(39595);
 Object.defineProperty(exports, "Pipelines", ({ enumerable: true, get: function () { return pipelines_1.Pipelines; } }));
 Object.defineProperty(exports, "BasePipelines", ({ enumerable: true, get: function () { return pipelines_1.BasePipelines; } }));
+var precursor_1 = __nccwpck_require__(50127);
+Object.defineProperty(exports, "Precursor", ({ enumerable: true, get: function () { return precursor_1.Precursor; } }));
+Object.defineProperty(exports, "BasePrecursor", ({ enumerable: true, get: function () { return precursor_1.BasePrecursor; } }));
 var queues_1 = __nccwpck_require__(85041);
 Object.defineProperty(exports, "Queues", ({ enumerable: true, get: function () { return queues_1.Queues; } }));
 Object.defineProperty(exports, "BaseQueues", ({ enumerable: true, get: function () { return queues_1.BaseQueues; } }));
@@ -56179,6 +58331,9 @@ Object.defineProperty(exports, "BaseRealtimeKit", ({ enumerable: true, get: func
 var registrar_1 = __nccwpck_require__(36611);
 Object.defineProperty(exports, "Registrar", ({ enumerable: true, get: function () { return registrar_1.Registrar; } }));
 Object.defineProperty(exports, "BaseRegistrar", ({ enumerable: true, get: function () { return registrar_1.BaseRegistrar; } }));
+var registrar_sandbox_1 = __nccwpck_require__(80167);
+Object.defineProperty(exports, "RegistrarSandbox", ({ enumerable: true, get: function () { return registrar_sandbox_1.RegistrarSandbox; } }));
+Object.defineProperty(exports, "BaseRegistrarSandbox", ({ enumerable: true, get: function () { return registrar_sandbox_1.BaseRegistrarSandbox; } }));
 var request_tracers_1 = __nccwpck_require__(2311);
 Object.defineProperty(exports, "RequestTracers", ({ enumerable: true, get: function () { return request_tracers_1.RequestTracers; } }));
 Object.defineProperty(exports, "BaseRequestTracers", ({ enumerable: true, get: function () { return request_tracers_1.BaseRequestTracers; } }));
@@ -56493,19 +58648,6 @@ var BaseIssues = /* @__PURE__ */ (() => {
                 query,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
-        }
-        /**
-         * Deprecated endpoint for archiving Security Center insights. Use the newer
-         * archive-security-center-insight endpoint instead.
-         *
-         * @deprecated
-         */
-        dismiss(issueID, params, options) {
-            const { account_id, ...body } = params;
-            return this._client.put((0, path_1.path) `/accounts/${account_id}/intel/attack-surface-report/${issueID}/dismiss`, {
-                body,
-                ...options,
-            });
         }
         /**
          * Retrieves Security Center issue counts aggregated by severity level.
@@ -56990,6 +59132,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Snapshots = exports.BaseSnapshots = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const headers_1 = __nccwpck_require__(24644);
 const uploads_1 = __nccwpck_require__(50488);
 const path_1 = __nccwpck_require__(91121);
 var BaseSnapshots = /* @__PURE__ */ (() => {
@@ -57014,8 +59157,19 @@ var BaseSnapshots = /* @__PURE__ */ (() => {
          * ```
          */
         update(feedID, params, options) {
-            const { account_id, ...body } = params;
-            return this._client.put((0, path_1.path) `/accounts/${account_id}/intel/indicator-feeds/${feedID}/snapshot`, (0, uploads_1.multipartFormRequestOptions)({ body, ...options }, this._client))._thenUnwrap((obj) => obj.result);
+            const { account_id, 'Cf-Async-Upload': cfAsyncUpload, ...body } = params;
+            return this._client.put((0, path_1.path) `/accounts/${account_id}/intel/indicator-feeds/${feedID}/snapshot`, (0, uploads_1.multipartFormRequestOptions)({
+                body,
+                ...options,
+                headers: (0, headers_1.buildHeaders)([
+                    {
+                        ...(cfAsyncUpload?.toString() != null ?
+                            { 'Cf-Async-Upload': cfAsyncUpload?.toString() }
+                            : undefined),
+                    },
+                    options?.headers,
+                ]),
+            }, this._client))._thenUnwrap((obj) => obj.result);
         }
     }
     BaseSnapshots._key = Object.freeze([
@@ -57053,8 +59207,8 @@ const IPsAPI = tslib_1.__importStar(__nccwpck_require__(98749));
 const ips_1 = __nccwpck_require__(98749);
 const MiscategorizationsAPI = tslib_1.__importStar(__nccwpck_require__(70802));
 const miscategorizations_1 = __nccwpck_require__(70802);
-const SinkholesAPI = tslib_1.__importStar(__nccwpck_require__(54513));
-const sinkholes_1 = __nccwpck_require__(54513);
+const URLsAPI = tslib_1.__importStar(__nccwpck_require__(77));
+const urls_1 = __nccwpck_require__(77);
 const WhoisAPI = tslib_1.__importStar(__nccwpck_require__(31291));
 const whois_1 = __nccwpck_require__(31291);
 const ASNAPI = tslib_1.__importStar(__nccwpck_require__(14712));
@@ -57065,6 +59219,8 @@ const DomainsAPI = tslib_1.__importStar(__nccwpck_require__(14924));
 const domains_1 = __nccwpck_require__(14924);
 const IndicatorFeedsAPI = tslib_1.__importStar(__nccwpck_require__(82120));
 const indicator_feeds_1 = __nccwpck_require__(82120);
+const SinkholesAPI = tslib_1.__importStar(__nccwpck_require__(61316));
+const sinkholes_1 = __nccwpck_require__(61316);
 var BaseIntel = /* @__PURE__ */ (() => {
     class BaseIntel extends resource_1.APIResource {
     }
@@ -57084,6 +59240,7 @@ var Intel = /* @__PURE__ */ (() => {
             this.ipLists = new IPListsAPI.IPLists(this._client);
             this.miscategorizations = new MiscategorizationsAPI.Miscategorizations(this._client);
             this.whois = new WhoisAPI.Whois(this._client);
+            this.urls = new URLsAPI.URLs(this._client);
             this.indicatorFeeds = new IndicatorFeedsAPI.IndicatorFeeds(this._client);
             this.sinkholes = new SinkholesAPI.Sinkholes(this._client);
             this.attackSurfaceReport = new AttackSurfaceReportAPI.AttackSurfaceReport(this._client);
@@ -57103,6 +59260,8 @@ var Intel = /* @__PURE__ */ (() => {
     Intel.Miscategorizations = miscategorizations_1.Miscategorizations;
     Intel.BaseMiscategorizations = miscategorizations_1.BaseMiscategorizations;
     Intel.BaseWhois = whois_1.BaseWhois;
+    Intel.URLs = urls_1.URLs;
+    Intel.BaseURLs = urls_1.BaseURLs;
     Intel.IndicatorFeeds = indicator_feeds_1.IndicatorFeeds;
     Intel.BaseIndicatorFeeds = indicator_feeds_1.BaseIndicatorFeeds;
     Intel.Sinkholes = sinkholes_1.Sinkholes;
@@ -57226,19 +59385,177 @@ exports.Miscategorizations = Miscategorizations;
 
 /***/ }),
 
-/***/ 54513:
+/***/ 41057:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Ingresses = exports.BaseIngresses = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseIngresses = /* @__PURE__ */ (() => {
+    class BaseIngresses extends resource_1.APIResource {
+        /**
+         * Create a new ingress rule for the specified sinkhole. The CIDR block must be a
+         * Cloudflare BYOIP associated with your account. The zone_id must be a zone with
+         * the ability to create Spectrum Apps. The sinkhole must belong to the same
+         * account as the zone.
+         *
+         * @example
+         * ```ts
+         * const ingress =
+         *   await client.intel.sinkholes.ingresses.create(
+         *     '93defa6e909e464e8c89a85859f36d3c',
+         *     {
+         *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       cidr: 'cidr',
+         *     },
+         *   );
+         * ```
+         */
+        create(sinkholeID, params, options) {
+            const { zone_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/zones/${zone_id}/intel/sinkholes/${sinkholeID}/ingresses`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Update the specified ingress rule. The sinkhole must belong to the same account
+         * as the zone.
+         *
+         * @example
+         * ```ts
+         * const ingress =
+         *   await client.intel.sinkholes.ingresses.update(
+         *     'de32ae5203724ed08dcc26e971a4d22f',
+         *     {
+         *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       sinkhole_id: '93defa6e909e464e8c89a85859f36d3c',
+         *       cidr: 'cidr',
+         *     },
+         *   );
+         * ```
+         */
+        update(ingressID, params, options) {
+            const { zone_id, sinkhole_id, ...body } = params;
+            return this._client.put((0, path_1.path) `/zones/${zone_id}/intel/sinkholes/${sinkhole_id}/ingresses/${ingressID}`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Delete the specified ingress rule. The sinkhole must belong to the same account
+         * as the zone.
+         *
+         * @example
+         * ```ts
+         * const ingress =
+         *   await client.intel.sinkholes.ingresses.delete(
+         *     'de32ae5203724ed08dcc26e971a4d22f',
+         *     {
+         *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       sinkhole_id: '93defa6e909e464e8c89a85859f36d3c',
+         *     },
+         *   );
+         * ```
+         */
+        delete(ingressID, params, options) {
+            const { zone_id, sinkhole_id } = params;
+            return this._client.delete((0, path_1.path) `/zones/${zone_id}/intel/sinkholes/${sinkhole_id}/ingresses/${ingressID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Get the specified ingress rule associated with a sinkhole. The sinkhole must
+         * belong to the same account as the zone.
+         *
+         * @example
+         * ```ts
+         * const ingress = await client.intel.sinkholes.ingresses.get(
+         *   'de32ae5203724ed08dcc26e971a4d22f',
+         *   {
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     sinkhole_id: '93defa6e909e464e8c89a85859f36d3c',
+         *   },
+         * );
+         * ```
+         */
+        get(ingressID, params, options) {
+            const { zone_id, sinkhole_id } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/intel/sinkholes/${sinkhole_id}/ingresses/${ingressID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseIngresses._key = Object.freeze([
+        'intel',
+        'sinkholes',
+        'ingresses',
+    ]);
+    return BaseIngresses;
+})();
+exports.BaseIngresses = BaseIngresses;
+class Ingresses extends BaseIngresses {
+}
+exports.Ingresses = Ingresses;
+//# sourceMappingURL=ingresses.js.map
+
+/***/ }),
+
+/***/ 61316:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Sinkholes = exports.BaseSinkholes = void 0;
+const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const IngressesAPI = tslib_1.__importStar(__nccwpck_require__(41057));
+const ingresses_1 = __nccwpck_require__(41057);
 const pagination_1 = __nccwpck_require__(86242);
 const path_1 = __nccwpck_require__(91121);
 var BaseSinkholes = /* @__PURE__ */ (() => {
     class BaseSinkholes extends resource_1.APIResource {
+        /**
+         * Create a new sinkhole. Logs of large request bodies will be truncated, but the
+         * full request body can be recorded in R2. If you wish to record large request
+         * bodies in R2, include the R2 key ID, key secret, and bucket name in the request
+         * body.
+         *
+         * @example
+         * ```ts
+         * const sinkhole = await client.intel.sinkholes.create({
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   name: 'name',
+         * });
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/intel/sinkholes`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Update the name or R2 configuration of the specified sinkhole.
+         *
+         * @example
+         * ```ts
+         * const sinkhole = await client.intel.sinkholes.update(
+         *   '93defa6e909e464e8c89a85859f36d3c',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     name: 'name',
+         *   },
+         * );
+         * ```
+         */
+        update(sinkholeID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.put((0, path_1.path) `/accounts/${account_id}/intel/sinkholes/${sinkholeID}`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
         /**
          * Lists sinkholes owned by the account for redirecting malicious traffic.
          *
@@ -57256,6 +59573,37 @@ var BaseSinkholes = /* @__PURE__ */ (() => {
             const { account_id } = params;
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/intel/sinkholes`, (pagination_1.SinglePage), options);
         }
+        /**
+         * Delete the specified sinkhole. The sinkhole must not have any active ingress
+         * rules defined. A 409 response code indicates that this condition is not met.
+         *
+         * @example
+         * ```ts
+         * const sinkhole = await client.intel.sinkholes.delete(
+         *   '93defa6e909e464e8c89a85859f36d3c',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
+         */
+        delete(sinkholeID, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/intel/sinkholes/${sinkholeID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Get the specified sinkhole by its unique identifier.
+         *
+         * @example
+         * ```ts
+         * const sinkhole = await client.intel.sinkholes.get(
+         *   '93defa6e909e464e8c89a85859f36d3c',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
+         */
+        get(sinkholeID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/intel/sinkholes/${sinkholeID}`, options)._thenUnwrap((obj) => obj.result);
+        }
     }
     BaseSinkholes._key = Object.freeze([
         'intel',
@@ -57264,10 +59612,59 @@ var BaseSinkholes = /* @__PURE__ */ (() => {
     return BaseSinkholes;
 })();
 exports.BaseSinkholes = BaseSinkholes;
-class Sinkholes extends BaseSinkholes {
-}
+var Sinkholes = /* @__PURE__ */ (() => {
+    class Sinkholes extends BaseSinkholes {
+        constructor() {
+            super(...arguments);
+            this.ingresses = new IngressesAPI.Ingresses(this._client);
+        }
+    }
+    Sinkholes.Ingresses = ingresses_1.Ingresses;
+    Sinkholes.BaseIngresses = ingresses_1.BaseIngresses;
+    return Sinkholes;
+})();
 exports.Sinkholes = Sinkholes;
 //# sourceMappingURL=sinkholes.js.map
+
+/***/ }),
+
+/***/ 77:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.URLs = exports.BaseURLs = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseURLs = /* @__PURE__ */ (() => {
+    class BaseURLs extends resource_1.APIResource {
+        /**
+         * Gets security information about a URL, including content categories and risk
+         * types. The URL must be provided as a query parameter.
+         *
+         * @example
+         * ```ts
+         * const url = await client.intel.urls.get({
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   url: 'url',
+         * });
+         * ```
+         */
+        get(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/intel/url`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseURLs._key = Object.freeze(['intel', 'urls']);
+    return BaseURLs;
+})();
+exports.BaseURLs = BaseURLs;
+class URLs extends BaseURLs {
+}
+exports.URLs = URLs;
+//# sourceMappingURL=urls.js.map
 
 /***/ }),
 
@@ -58206,17 +60603,17 @@ const MonitorsAPI = tslib_1.__importStar(__nccwpck_require__(41424));
 const monitors_1 = __nccwpck_require__(41424);
 const PoolsAPI = tslib_1.__importStar(__nccwpck_require__(19392));
 const pools_1 = __nccwpck_require__(19392);
+const error_1 = __nccwpck_require__(34314);
 const pagination_1 = __nccwpck_require__(86242);
 const path_1 = __nccwpck_require__(91121);
 var BaseLoadBalancers = /* @__PURE__ */ (() => {
     class BaseLoadBalancers extends resource_1.APIResource {
         /**
-         * Create a new load balancer.
+         * Create a new account or zone-scoped load balancer.
          *
          * @example
          * ```ts
          * const loadBalancer = await client.loadBalancers.create({
-         *   zone_id: '699d98642c564d2e855e9661899b7252',
          *   default_pools: [
          *     '17b5962d775c646f3f9725cbc7a53df4',
          *     '9290f38c5d07c2e2f4df57b1f61d4196',
@@ -58224,22 +60621,40 @@ var BaseLoadBalancers = /* @__PURE__ */ (() => {
          *   ],
          *   fallback_pool: 'fallback_pool',
          *   name: 'www.example.com',
+         *   account_id: 'account_id',
          * });
          * ```
          */
         create(params, options) {
-            const { zone_id, ...body } = params;
-            return this._client.post((0, path_1.path) `/zones/${zone_id}/load_balancers`, { body, ...options })._thenUnwrap((obj) => obj.result);
+            const { account_id, zone_id, ...body } = params;
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.post((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/load_balancers`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update a configured load balancer.
+         * Update a configured account or zone-scoped load balancer.
          *
          * @example
          * ```ts
          * const loadBalancer = await client.loadBalancers.update(
          *   '699d98642c564d2e855e9661899b7252',
          *   {
-         *     zone_id: '699d98642c564d2e855e9661899b7252',
          *     default_pools: [
          *       '17b5962d775c646f3f9725cbc7a53df4',
          *       '9290f38c5d07c2e2f4df57b1f61d4196',
@@ -58247,81 +60662,158 @@ var BaseLoadBalancers = /* @__PURE__ */ (() => {
          *     ],
          *     fallback_pool: 'fallback_pool',
          *     name: 'www.example.com',
+         *     account_id: 'account_id',
          *   },
          * );
          * ```
          */
         update(loadBalancerID, params, options) {
-            const { zone_id, ...body } = params;
-            return this._client.put((0, path_1.path) `/zones/${zone_id}/load_balancers/${loadBalancerID}`, {
+            const { account_id, zone_id, ...body } = params;
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.put((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/load_balancers/${loadBalancerID}`, {
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List configured load balancers.
+         * List configured account or zone-scoped load balancers.
          *
          * @example
          * ```ts
          * // Automatically fetches more pages as needed.
          * for await (const loadBalancer of client.loadBalancers.list({
-         *   zone_id: '699d98642c564d2e855e9661899b7252',
+         *   account_id: 'account_id',
          * })) {
          *   // ...
          * }
          * ```
          */
-        list(params, options) {
-            const { zone_id } = params;
-            return this._client.getAPIList((0, path_1.path) `/zones/${zone_id}/load_balancers`, (pagination_1.SinglePage), options);
+        list(params = {}, options) {
+            const { account_id, zone_id } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.getAPIList((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/load_balancers`, (pagination_1.SinglePage), options);
         }
         /**
-         * Delete a configured load balancer.
+         * Delete a configured account or zone-scoped load balancer.
          *
          * @example
          * ```ts
          * const loadBalancer = await client.loadBalancers.delete(
          *   '699d98642c564d2e855e9661899b7252',
-         *   { zone_id: '699d98642c564d2e855e9661899b7252' },
+         *   { account_id: 'account_id' },
          * );
          * ```
          */
-        delete(loadBalancerID, params, options) {
-            const { zone_id } = params;
-            return this._client.delete((0, path_1.path) `/zones/${zone_id}/load_balancers/${loadBalancerID}`, options)._thenUnwrap((obj) => obj.result);
+        delete(loadBalancerID, params = {}, options) {
+            const { account_id, zone_id } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/load_balancers/${loadBalancerID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Apply changes to an existing load balancer, overwriting the supplied properties.
+         * Apply changes to an existing account or zone-scoped load balancer, overwriting
+         * the supplied properties.
          *
          * @example
          * ```ts
          * const loadBalancer = await client.loadBalancers.edit(
          *   '699d98642c564d2e855e9661899b7252',
-         *   { zone_id: '699d98642c564d2e855e9661899b7252' },
+         *   { account_id: 'account_id' },
          * );
          * ```
          */
         edit(loadBalancerID, params, options) {
-            const { zone_id, ...body } = params;
-            return this._client.patch((0, path_1.path) `/zones/${zone_id}/load_balancers/${loadBalancerID}`, {
+            const { account_id, zone_id, ...body } = params;
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.patch((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/load_balancers/${loadBalancerID}`, {
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetch a single configured load balancer.
+         * Fetch a single configured account or zone-scoped load balancer.
          *
          * @example
          * ```ts
          * const loadBalancer = await client.loadBalancers.get(
          *   '699d98642c564d2e855e9661899b7252',
-         *   { zone_id: '699d98642c564d2e855e9661899b7252' },
+         *   { account_id: 'account_id' },
          * );
          * ```
          */
-        get(loadBalancerID, params, options) {
-            const { zone_id } = params;
-            return this._client.get((0, path_1.path) `/zones/${zone_id}/load_balancers/${loadBalancerID}`, options)._thenUnwrap((obj) => obj.result);
+        get(loadBalancerID, params = {}, options) {
+            const { account_id, zone_id } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.get((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/load_balancers/${loadBalancerID}`, options)._thenUnwrap((obj) => obj.result);
         }
     }
     BaseLoadBalancers._key = Object.freeze(['loadBalancers']);
@@ -60283,15 +62775,11 @@ var BaseDatasets = /* @__PURE__ */ (() => {
         /**
          * Create a new Log Explorer dataset for the account or zone.
          *
-         * Use the
-         * `/account or zones/{account or zone_id}/logs/explorer/datasets/available`
-         * endpoint to list dataset types you can create along with their available fields.
+         * List available account or zone datasets to see the dataset types and fields you
+         * can use.
          *
          * The `fields` property is optional. If not specified, all available fields will
          * be enabled.
-         *
-         * For zone-level datasets use the zone-scoped endpoint: POST
-         * /zones/{zone_id}/logs/explorer/datasets
          *
          * For dataset field definitions, see:
          * https://developers.cloudflare.com/logs/logpush/logpush-job/datasets/
@@ -60397,6 +62885,38 @@ var BaseDatasets = /* @__PURE__ */ (() => {
                     accountOrZoneId: zone_id,
                 };
             return this._client.getAPIList((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/logs/explorer/datasets`, (pagination_1.SinglePage), { query, ...options });
+        }
+        /**
+         * Deletes a Log Explorer dataset for the account or zone. Dataset deletion must
+         * not be protected.
+         *
+         * @example
+         * ```ts
+         * const dataset =
+         *   await client.logs.logExplorer.datasets.delete(
+         *     'dataset_id',
+         *     { account_id: 'account_id' },
+         *   );
+         * ```
+         */
+        delete(datasetID, params = {}, options) {
+            const { account_id, zone_id } = params ?? {};
+            if (!account_id && !zone_id) {
+                throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
+            }
+            if (account_id && zone_id) {
+                throw new error_1.CloudflareError('You cannot provide both account_id and zone_id.');
+            }
+            const { accountOrZone, accountOrZoneId } = account_id ?
+                {
+                    accountOrZone: 'accounts',
+                    accountOrZoneId: account_id,
+                }
+                : {
+                    accountOrZone: 'zones',
+                    accountOrZoneId: zone_id,
+                };
+            return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/logs/explorer/datasets/${datasetID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
          * Retrieve a single Log Explorer dataset by ID for the account or zone.
@@ -60519,14 +63039,9 @@ var BaseQuery = /* @__PURE__ */ (() => {
          * WHERE {timestamp_field} BETWEEN '2026-04-01T00:00:00Z' AND
          * '2026-04-30T23:59:59Z'
          *
-         * Check /account or zones/{account or zone_id}/logs/explorer/datasets to see
-         * enabled account or zone level datasets. Zone-level datasets will not appear
-         * here. Check /account or zones/{account or
-         * zone_id}/logs/explorer/datasets/available for the schemas, and the name of the
-         * timestamp fields.
-         *
-         * For zone-level datasets use the zone-scoped endpoint: POST
-         * /zones/{zone_id}/logs/explorer/query/sql
+         * List configured account or zone datasets to see enabled account or zone-level
+         * datasets. Zone-level datasets will not appear here. List available account or
+         * zone datasets to inspect their schemas and timestamp fields.
          *
          * For more information about the datasets, and the meaning of each field, check
          * out https://developers.cloudflare.com/logs/logpush/logpush-job/datasets/
@@ -62312,6 +64827,8 @@ exports.Connectors = exports.BaseConnectors = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const InterruptsAPI = tslib_1.__importStar(__nccwpck_require__(86015));
+const interrupts_1 = __nccwpck_require__(86015);
 const EventsAPI = tslib_1.__importStar(__nccwpck_require__(98340));
 const events_1 = __nccwpck_require__(98340);
 const SnapshotsAPI = tslib_1.__importStar(__nccwpck_require__(55760));
@@ -62321,7 +64838,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseConnectors = /* @__PURE__ */ (() => {
     class BaseConnectors extends resource_1.APIResource {
         /**
-         * Add a connector to your account
+         * Creates a Magic WAN Connector.
          *
          * @example
          * ```ts
@@ -62337,7 +64854,8 @@ var BaseConnectors = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/magic/connectors`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Replace Connector or Re-provision License Key
+         * Updates properties of a Magic WAN Connector. May be used to re-provision a
+         * license key.
          *
          * @example
          * ```ts
@@ -62356,7 +64874,7 @@ var BaseConnectors = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List Connectors
+         * Lists Magic WAN Connectors.
          *
          * @example
          * ```ts
@@ -62373,7 +64891,7 @@ var BaseConnectors = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/magic/connectors`, (pagination_1.SinglePage), { query, ...options });
         }
         /**
-         * Remove a connector from your account
+         * Deletes a Magic WAN Connector.
          *
          * @example
          * ```ts
@@ -62389,7 +64907,8 @@ var BaseConnectors = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/magic/connectors/${connectorID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Edit Connector to update specific properties or Re-provision License Key
+         * Edits properties of a Magic WAN Connector. May be used to re-provision a license
+         * key.
          *
          * @example
          * ```ts
@@ -62407,7 +64926,7 @@ var BaseConnectors = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetch Connector
+         * Gets a Magic WAN Connector.
          *
          * @example
          * ```ts
@@ -62433,10 +64952,13 @@ var Connectors = /* @__PURE__ */ (() => {
     class Connectors extends BaseConnectors {
         constructor() {
             super(...arguments);
+            this.interrupts = new InterruptsAPI.Interrupts(this._client);
             this.events = new EventsAPI.Events(this._client);
             this.snapshots = new SnapshotsAPI.Snapshots(this._client);
         }
     }
+    Connectors.Interrupts = interrupts_1.Interrupts;
+    Connectors.BaseInterrupts = interrupts_1.BaseInterrupts;
     Connectors.Events = events_1.Events;
     Connectors.BaseEvents = events_1.BaseEvents;
     Connectors.Snapshots = snapshots_1.Snapshots;
@@ -62464,7 +64986,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseEvents = /* @__PURE__ */ (() => {
     class BaseEvents extends resource_1.APIResource {
         /**
-         * List Events
+         * Lists Magic WAN Connector Telemetry Events
          *
          * @example
          * ```ts
@@ -62487,7 +65009,7 @@ var BaseEvents = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get Event
+         * Gets Magic WAN Connector Telemetry Event
          *
          * @example
          * ```ts
@@ -62541,7 +65063,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseLatest = /* @__PURE__ */ (() => {
     class BaseLatest extends resource_1.APIResource {
         /**
-         * Get latest Events
+         * Gets latest Magic WAN Connector Telemetry Events
          *
          * @example
          * ```ts
@@ -62573,6 +65095,72 @@ exports.Latest = Latest;
 
 /***/ }),
 
+/***/ 86015:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Interrupts = exports.BaseInterrupts = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseInterrupts = /* @__PURE__ */ (() => {
+    class BaseInterrupts extends resource_1.APIResource {
+        /**
+         * Creates an interrupt for a Magic WAN Connector.
+         *
+         * @example
+         * ```ts
+         * const interrupt =
+         *   await client.magicTransit.connectors.interrupts.create(
+         *     'connector_id',
+         *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   );
+         * ```
+         */
+        create(connectorID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/magic/connectors/${connectorID}/interrupts`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Lists interrupts for a Magic WAN Connector.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const interruptListResponse of client.magicTransit.connectors.interrupts.list(
+         *   'connector_id',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(connectorID, params, options) {
+            const { account_id } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/magic/connectors/${connectorID}/interrupts`, (pagination_1.SinglePage), options);
+        }
+    }
+    BaseInterrupts._key = Object.freeze([
+        'magicTransit',
+        'connectors',
+        'interrupts',
+    ]);
+    return BaseInterrupts;
+})();
+exports.BaseInterrupts = BaseInterrupts;
+class Interrupts extends BaseInterrupts {
+}
+exports.Interrupts = Interrupts;
+//# sourceMappingURL=interrupts.js.map
+
+/***/ }),
+
 /***/ 25038:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -62586,7 +65174,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseLatest = /* @__PURE__ */ (() => {
     class BaseLatest extends resource_1.APIResource {
         /**
-         * Get latest Snapshots
+         * Gets latest Magic WAN Connector Telemetry Snapshots
          *
          * @example
          * ```ts
@@ -62629,7 +65217,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSnapshots = /* @__PURE__ */ (() => {
     class BaseSnapshots extends resource_1.APIResource {
         /**
-         * List Snapshots
+         * Lists Magic WAN Connector Telemetry Snapshots
          *
          * @example
          * ```ts
@@ -62652,7 +65240,7 @@ var BaseSnapshots = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get Snapshot
+         * Gets Magic WAN Connector Telemetry Snapshot
          *
          * @example
          * ```ts
@@ -64483,8 +67071,9 @@ var BaseRelays = /* @__PURE__ */ (() => {
         /**
          * Provisions a new MoQ relay instance. Auto-creates a publish+subscribe token and
          * a subscribe-only token. Token values are included in the response (shown once).
-         * Config is set to defaults (lingering subscribe enabled, 30s ceiling, origin
-         * fallback off). Use PUT to modify.
+         * Config is always set to defaults (upstreams off) and cannot be supplied here —
+         * sending a non-empty `config` is rejected (21014); `null` or `{}` is accepted as
+         * absent. Use PUT to configure the relay after it exists.
          *
          * @example
          * ```ts
@@ -64499,9 +67088,11 @@ var BaseRelays = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/moq/relays`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates a relay's name and/or configuration. Partial updates: omitted fields are
-         * preserved. Config sub-objects replace as whole objects when present.
-         * origin_fallback and lingering_subscribe are mutually exclusive.
+         * Updates a relay's name and/or configuration. The relay ID goes in the URL path —
+         * `PUT /accounts/{account_id}/moq/relays/{relay_id}` — not the request body; there
+         * is no collection-level update endpoint. This is also the only way to set a
+         * relay's config (config cannot be set at create time). Partial updates: omitted
+         * fields are preserved; config sub-objects replace as whole objects when present.
          *
          * @example
          * ```ts
@@ -64545,7 +67136,9 @@ var BaseRelays = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Soft-deletes a MoQ relay.
+         * Soft-deletes a MoQ relay. The relay ID goes in the URL path —
+         * `DELETE /accounts/{account_id}/moq/relays/{relay_id}` — not the request body;
+         * there is no collection-level delete endpoint.
          *
          * @example
          * ```ts
@@ -64609,26 +67202,66 @@ const path_1 = __nccwpck_require__(91121);
 var BaseTokens = /* @__PURE__ */ (() => {
     class BaseTokens extends resource_1.APIResource {
         /**
-         * Generates a new token for the specified type. The old token is immediately
-         * invalidated. Token value is shown once in the response.
+         * Mints a new relay-scoped token and adds it to the relay's accepted-auth
+         * registry. The token value (secret) is shown once in the response. A relay may
+         * hold up to 10 tokens; creating an 11th is rejected.
          *
          * @example
          * ```ts
-         * const response = await client.moq.relays.tokens.rotate(
+         * const token = await client.moq.relays.tokens.create(
          *   'a1b2c3d4e5f67890a1b2c3d4e5f67890',
          *   {
          *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-         *     type: 'publish_subscribe',
+         *     operations: ['publish', 'subscribe'],
          *   },
          * );
          * ```
          */
-        rotate(relayID, params, options) {
+        create(relayID, params, options) {
             const { account_id, ...body } = params;
-            return this._client.post((0, path_1.path) `/accounts/${account_id}/moq/relays/${relayID}/tokens/rotate`, {
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/moq/relays/${relayID}/tokens`, {
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns metadata for every token the relay accepts. Secrets are never returned,
+         * so a token that has been lost cannot be recovered here. There is no expiry
+         * filter: compare each token's `expires` to the current time to tell which ones
+         * have lapsed.
+         *
+         * @example
+         * ```ts
+         * const tokens = await client.moq.relays.tokens.list(
+         *   'a1b2c3d4e5f67890a1b2c3d4e5f67890',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
+         */
+        list(relayID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/moq/relays/${relayID}/tokens`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Revokes a token by removing it from the set the relay accepts. Relays cache that
+         * set, so revocation takes effect within seconds rather than instantly, and
+         * connections already established with the token are not closed. Revoking an
+         * unknown token succeeds, so the call is idempotent.
+         *
+         * @example
+         * ```ts
+         * const token = await client.moq.relays.tokens.delete(
+         *   'f3a1b2c3d4e5f67890a1b2c3d4e5f678',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     relay_id: 'a1b2c3d4e5f67890a1b2c3d4e5f67890',
+         *   },
+         * );
+         * ```
+         */
+        delete(jti, params, options) {
+            const { account_id, relay_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/moq/relays/${relay_id}/tokens/${jti}`, options);
         }
     }
     BaseTokens._key = Object.freeze([
@@ -64738,7 +67371,7 @@ var BaseMTLSCertificates = /* @__PURE__ */ (() => {
          * @example
          * ```ts
          * // Automatically fetches more pages as needed.
-         * for await (const mtlsCertificate of client.mtlsCertificates.list(
+         * for await (const mtlsCertificateListResponse of client.mtlsCertificates.list(
          *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
          * )) {
          *   // ...
@@ -64818,7 +67451,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseCNIs = /* @__PURE__ */ (() => {
     class BaseCNIs extends resource_1.APIResource {
         /**
-         * Create a new CNI object
+         * Creates a new Cloud Network Interconnect (CNI) for private network connectivity
+         * between Cloudflare and your infrastructure. CNIs enable dedicated,
+         * high-performance network links.
          *
          * @example
          * ```ts
@@ -64839,7 +67474,8 @@ var BaseCNIs = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/cni/cnis`, { body, ...options });
         }
         /**
-         * Modify stored information about a CNI object
+         * Updates the configuration of an existing Cloud Network Interconnect (CNI),
+         * including connection parameters and routing settings.
          *
          * @example
          * ```ts
@@ -64866,7 +67502,8 @@ var BaseCNIs = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/cni/cnis/${cni}`, { body, ...options });
         }
         /**
-         * List existing CNI objects
+         * Lists all Cloud Network Interconnects (CNIs) configured for the account, showing
+         * connection status and parameters.
          *
          * @example
          * ```ts
@@ -64880,7 +67517,8 @@ var BaseCNIs = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/cni/cnis`, { query, ...options });
         }
         /**
-         * Delete a specified CNI object
+         * Permanently removes a Cloud Network Interconnect (CNI) configuration. The
+         * private network connection will be terminated.
          *
          * @example
          * ```ts
@@ -64898,7 +67536,8 @@ var BaseCNIs = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Get information about a CNI object
+         * Retrieves configuration details for a specific Cloud Network Interconnect (CNI),
+         * including connection status and parameters.
          *
          * @example
          * ```ts
@@ -64941,7 +67580,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseInterconnects = /* @__PURE__ */ (() => {
     class BaseInterconnects extends resource_1.APIResource {
         /**
-         * Create a new interconnect
+         * Creates a new network interconnect for connecting Cloudflare's network to
+         * external networks. Interconnects provide dedicated bandwidth and reduced latency
+         * for traffic exchange.
          *
          * @example
          * ```ts
@@ -64959,7 +67600,8 @@ var BaseInterconnects = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/cni/interconnects`, { body, ...options });
         }
         /**
-         * List existing interconnects
+         * Lists all network interconnects configured for the account, including physical
+         * and virtual connections.
          *
          * @example
          * ```ts
@@ -64974,7 +67616,8 @@ var BaseInterconnects = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/cni/interconnects`, { query, ...options });
         }
         /**
-         * Delete an interconnect object
+         * Permanently removes a network interconnect configuration. The physical or
+         * virtual connection will be terminated.
          *
          * @example
          * ```ts
@@ -64992,7 +67635,7 @@ var BaseInterconnects = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Get information about an interconnect object
+         * Retrieves configuration and status details for a specific network interconnect.
          *
          * @example
          * ```ts
@@ -65008,7 +67651,8 @@ var BaseInterconnects = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/cni/interconnects/${icon}`, options);
         }
         /**
-         * Generate the Letter of Authorization (LOA) for a given interconnect
+         * Downloads the Letter of Authorization (LOA) for a network interconnect, required
+         * for physical cross-connect provisioning.
          *
          * @example
          * ```ts
@@ -65019,14 +67663,16 @@ var BaseInterconnects = /* @__PURE__ */ (() => {
          * ```
          */
         loa(icon, params, options) {
-            const { account_id } = params;
+            const { account_id, ...query } = params;
             return this._client.get((0, path_1.path) `/accounts/${account_id}/cni/interconnects/${icon}/loa`, {
+                query,
                 ...options,
                 headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]),
             });
         }
         /**
-         * Get the current status of an interconnect object
+         * Gets the current operational status of a network interconnect, including link
+         * state and traffic metrics.
          *
          * @example
          * ```ts
@@ -65121,7 +67767,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSettings = /* @__PURE__ */ (() => {
     class BaseSettings extends resource_1.APIResource {
         /**
-         * Update the current settings for the active account
+         * Updates configuration settings for the specified resource or service.
          *
          * @example
          * ```ts
@@ -65136,7 +67782,7 @@ var BaseSettings = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/cni/settings`, { body, ...options });
         }
         /**
-         * Get the current settings for the active account
+         * Retrieves current settings configuration for the specified resource or service.
          *
          * @example
          * ```ts
@@ -65178,7 +67824,8 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSlots = /* @__PURE__ */ (() => {
     class BaseSlots extends resource_1.APIResource {
         /**
-         * Retrieve a list of all slots matching the specified parameters
+         * Lists all available infrastructure slots for the account, showing allocation
+         * status and capacity.
          *
          * @example
          * ```ts
@@ -65192,7 +67839,7 @@ var BaseSlots = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/cni/slots`, { query, ...options });
         }
         /**
-         * Get information about the specified slot
+         * Gets information about a specific infrastructure slot allocation.
          *
          * @example
          * ```ts
@@ -66381,15 +69028,7 @@ var BasePageRules = /* @__PURE__ */ (() => {
          * const pageRule = await client.pageRules.create({
          *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
          *   actions: [{ id: 'browser_check' }],
-         *   targets: [
-         *     {
-         *       constraint: {
-         *         operator: 'matches',
-         *         value: '*example.com/images/*',
-         *       },
-         *       target: 'url',
-         *     },
-         *   ],
+         *   targets: [{}],
          * });
          * ```
          */
@@ -66408,15 +69047,7 @@ var BasePageRules = /* @__PURE__ */ (() => {
          *   {
          *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
          *     actions: [{ id: 'browser_check' }],
-         *     targets: [
-         *       {
-         *         constraint: {
-         *           operator: 'matches',
-         *           value: '*example.com/images/*',
-         *         },
-         *         target: 'url',
-         *       },
-         *     ],
+         *     targets: [{}],
          *   },
          * );
          * ```
@@ -66881,6 +69512,107 @@ exports.Scripts = Scripts;
 
 /***/ }),
 
+/***/ 806:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Assets = exports.BaseAssets = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+var BaseAssets = /* @__PURE__ */ (() => {
+    class BaseAssets extends resource_1.APIResource {
+        /**
+         * Check which of the provided file hashes are missing from the Pages asset store.
+         * Returns a list of missing hashes that need to be uploaded. Used as part of the
+         * Pages Direct Upload workflow.
+         *
+         * Authenticate with the JWT obtained from the upload-token endpoint: GET
+         * /accounts/{account_id}/pages/projects/{project_name}/upload-token
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const assetCheckMissingResponse of client.pages.assets.checkMissing(
+         *   {
+         *     hashes: [
+         *       'a948904f2f0f479b8f936b8a0c5d9882',
+         *       'b026324c6904b2a9cb4b88d6d61c81d1',
+         *     ],
+         *   },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        checkMissing(body, options) {
+            return this._client.getAPIList('/pages/assets/check-missing', (pagination_1.SinglePage), {
+                body,
+                method: 'post',
+                ...options,
+            });
+        }
+        /**
+         * Upload one or more files to the Pages asset store. Each file is identified by
+         * its content hash and is uploaded using the same JSON shape as the Cloudflare KV
+         * bulk write API. Used as part of the Pages Direct Upload workflow.
+         *
+         * Authenticate with the JWT obtained from the upload-token endpoint: GET
+         * /accounts/{account_id}/pages/projects/{project_name}/upload-token
+         *
+         * @example
+         * ```ts
+         * const response = await client.pages.assets.upload({
+         *   body: [
+         *     {
+         *       base64: true,
+         *       key: 'b026324c6904b2a9cb4b88d6d61c81d1',
+         *       metadata: { contentType: 'text/plain' },
+         *       value: 'SGVsbG8sIFdvcmxkIQ==',
+         *     },
+         *   ],
+         * });
+         * ```
+         */
+        upload(params, options) {
+            const { body } = params;
+            return this._client.post('/pages/assets/upload', { body: body, ...options });
+        }
+        /**
+         * Register the provided file hashes as recently uploaded to the Pages asset store.
+         * Used as part of the Pages Direct Upload workflow so future deployments can avoid
+         * re-uploading files that are already present.
+         *
+         * Authenticate with the JWT obtained from the upload-token endpoint: GET
+         * /accounts/{account_id}/pages/projects/{project_name}/upload-token
+         *
+         * @example
+         * ```ts
+         * const response = await client.pages.assets.upsertHashes({
+         *   hashes: [
+         *     'a948904f2f0f479b8f936b8a0c5d9882',
+         *     'b026324c6904b2a9cb4b88d6d61c81d1',
+         *   ],
+         * });
+         * ```
+         */
+        upsertHashes(body, options) {
+            return this._client.post('/pages/assets/upsert-hashes', { body, ...options });
+        }
+    }
+    BaseAssets._key = Object.freeze(['pages', 'assets']);
+    return BaseAssets;
+})();
+exports.BaseAssets = BaseAssets;
+class Assets extends BaseAssets {
+}
+exports.Assets = Assets;
+//# sourceMappingURL=assets.js.map
+
+/***/ }),
+
 /***/ 33147:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -66891,6 +69623,8 @@ exports.Pages = exports.BasePages = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const AssetsAPI = tslib_1.__importStar(__nccwpck_require__(806));
+const assets_1 = __nccwpck_require__(806);
 const ProjectsAPI = tslib_1.__importStar(__nccwpck_require__(12010));
 const projects_1 = __nccwpck_require__(12010);
 var BasePages = /* @__PURE__ */ (() => {
@@ -66905,10 +69639,13 @@ var Pages = /* @__PURE__ */ (() => {
         constructor() {
             super(...arguments);
             this.projects = new ProjectsAPI.Projects(this._client);
+            this.assets = new AssetsAPI.Assets(this._client);
         }
     }
     Pages.Projects = projects_1.Projects;
     Pages.BaseProjects = projects_1.BaseProjects;
+    Pages.Assets = assets_1.Assets;
+    Pages.BaseAssets = assets_1.BaseAssets;
     return Pages;
 })();
 exports.Pages = Pages;
@@ -66926,6 +69663,8 @@ exports.Deployments = exports.BaseDeployments = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const TailsAPI = tslib_1.__importStar(__nccwpck_require__(36954));
+const tails_1 = __nccwpck_require__(36954);
 const HistoryAPI = tslib_1.__importStar(__nccwpck_require__(92422));
 const history_1 = __nccwpck_require__(92422);
 const pagination_1 = __nccwpck_require__(86242);
@@ -67059,10 +69798,13 @@ var Deployments = /* @__PURE__ */ (() => {
         constructor() {
             super(...arguments);
             this.history = new HistoryAPI.History(this._client);
+            this.tails = new TailsAPI.Tails(this._client);
         }
     }
     Deployments.History = history_1.History;
     Deployments.BaseHistory = history_1.BaseHistory;
+    Deployments.Tails = tails_1.Tails;
+    Deployments.BaseTails = tails_1.BaseTails;
     return Deployments;
 })();
 exports.Deployments = Deployments;
@@ -67150,6 +69892,74 @@ class Logs extends BaseLogs {
 }
 exports.Logs = Logs;
 //# sourceMappingURL=logs.js.map
+
+/***/ }),
+
+/***/ 36954:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Tails = exports.BaseTails = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseTails = /* @__PURE__ */ (() => {
+    class BaseTails extends resource_1.APIResource {
+        /**
+         * Start a tail that receives logs and exception data.
+         *
+         * @example
+         * ```ts
+         * const tail =
+         *   await client.pages.projects.deployments.tails.create(
+         *     '023e105f4ecef8ad9ca31a8372d0c353',
+         *     {
+         *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       project_name: 'this-is-my-project-01',
+         *     },
+         *   );
+         * ```
+         */
+        create(deploymentID, params, options) {
+            const { account_id, project_name, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/pages/projects/${project_name}/deployments/${deploymentID}/tails`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Deletes a tail from a Pages deployment.
+         *
+         * @example
+         * ```ts
+         * const tail =
+         *   await client.pages.projects.deployments.tails.delete(
+         *     '023e105f4ecef8ad9ca31a8372d0c353',
+         *     {
+         *       account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *       project_name: 'this-is-my-project-01',
+         *       deployment_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     },
+         *   );
+         * ```
+         */
+        delete(tailID, params, options) {
+            const { account_id, project_name, deployment_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/pages/projects/${project_name}/deployments/${deployment_id}/tails/${tailID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseTails._key = Object.freeze([
+        'pages',
+        'projects',
+        'deployments',
+        'tails',
+    ]);
+    return BaseTails;
+})();
+exports.BaseTails = BaseTails;
+class Tails extends BaseTails {
+}
+exports.Tails = Tails;
+//# sourceMappingURL=tails.js.map
 
 /***/ }),
 
@@ -67376,6 +70186,21 @@ var BaseProjects = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/pages/projects/${projectName}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
+         * Get a short-lived JWT for Pages Direct Upload asset operations.
+         *
+         * @example
+         * ```ts
+         * const response = await client.pages.projects.getUploadToken(
+         *   'this-is-my-project-01',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
+         */
+        getUploadToken(projectName, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/pages/projects/${projectName}/upload-token`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
          * Purge all cached build artifacts for a Pages project
          *
          * @example
@@ -67528,7 +70353,7 @@ var BasePipelines = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/accounts/${account_id}/pipelines/${pipelineName}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get Pipelines Details.
+         * Get Pipeline details.
          *
          * @example
          * ```ts
@@ -67560,7 +70385,7 @@ var BasePipelines = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/pipelines/v1/pipelines`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Validate Arroyo SQL.
+         * Validates that the Pipelines SQL is correct.
          *
          * @example
          * ```ts
@@ -67651,7 +70476,7 @@ var BaseSinks = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/pipelines/v1/sinks`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete Pipeline in Account.
+         * Delete Sink in Account.
          *
          * @example
          * ```ts
@@ -67809,6 +70634,101 @@ class Streams extends BaseStreams {
 }
 exports.Streams = Streams;
 //# sourceMappingURL=streams.js.map
+
+/***/ }),
+
+/***/ 50127:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+tslib_1.__exportStar(__nccwpck_require__(91208), exports);
+//# sourceMappingURL=precursor.js.map
+
+/***/ }),
+
+/***/ 91208:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.BasePrecursor = exports.Precursor = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+var precursor_1 = __nccwpck_require__(10387);
+Object.defineProperty(exports, "Precursor", ({ enumerable: true, get: function () { return precursor_1.Precursor; } }));
+Object.defineProperty(exports, "BasePrecursor", ({ enumerable: true, get: function () { return precursor_1.BasePrecursor; } }));
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 10387:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Precursor = exports.BasePrecursor = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BasePrecursor = /* @__PURE__ */ (() => {
+    class BasePrecursor extends resource_1.APIResource {
+        /**
+         * Updates the Precursor configuration for a zone.
+         *
+         * `default_mode` sets the zone-level enforcement mode. `enforcement_rules` is the
+         * ordered list of rules that override enforcement for matching requests.
+         *
+         * This is a partial update: only the fields present in the request body are
+         * changed.
+         *
+         * - Sending an empty array (`[]`) clears all enforcement rules.
+         * - At least one of `default_mode` or `enforcement_rules` must be present; an
+         *   empty body (`{}`) is rejected with `400`.
+         * - Rule `id` is read-only (assigned by Cloudflare) and ignored on input.
+         * - Rule `mode` must be `min-friction` or `max-security` (`off` is not a valid
+         *   rule mode; use `default_mode` to disable enforcement).
+         *
+         * @example
+         * ```ts
+         * const precursorConfig = await client.precursor.update({
+         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   default_mode: 'min-friction',
+         * });
+         * ```
+         */
+        update(params, options) {
+            const { zone_id, ...body } = params;
+            return this._client.put((0, path_1.path) `/zones/${zone_id}/precursor`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Retrieve a zone's Precursor configuration: the zone-level `default_mode` and the
+         * ordered list of `enforcement_rules`.
+         *
+         * @example
+         * ```ts
+         * const precursorConfig = await client.precursor.get({
+         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         * });
+         * ```
+         */
+        get(params, options) {
+            const { zone_id } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/precursor`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BasePrecursor._key = Object.freeze(['precursor']);
+    return BasePrecursor;
+})();
+exports.BasePrecursor = BasePrecursor;
+class Precursor extends BasePrecursor {
+}
+exports.Precursor = Precursor;
+//# sourceMappingURL=precursor.js.map
 
 /***/ }),
 
@@ -67988,6 +70908,25 @@ var BaseMessages = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
+         * Peek messages from a Queue without leasing them. Messages remain available for
+         * subsequent peek or pull operations.
+         *
+         * @example
+         * ```ts
+         * const response = await client.queues.messages.peek(
+         *   '023e105f4ecef8ad9ca31a8372d0c353',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
+         */
+        peek(queueID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/queues/${queueID}/messages/peek`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
          * Pull a batch of messages from a Queue
          *
          * @example
@@ -68001,6 +70940,33 @@ var BaseMessages = /* @__PURE__ */ (() => {
         pull(queueID, params, options) {
             const { account_id, ...body } = params;
             return this._client.post((0, path_1.path) `/accounts/${account_id}/queues/${queueID}/messages/pull`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Delete peeked messages from a Queue by their ref. Purged messages aren't
+         * considered delivered, they are instantly deleted from this queue and do not
+         * affect metrics.
+         *
+         * @example
+         * ```ts
+         * const response = await client.queues.messages.purge(
+         *   '023e105f4ecef8ad9ca31a8372d0c353',
+         *   {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     refs: [
+         *       {
+         *         ref: 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIn0..Q8p21d7dceR6vUfwftONdQ.JVqZgAS-Zk7MqmqccYtTHeeMElNHaOMigeWdb8LyMOg.T2_HV99CYzGaQuhTyW8RsgbnpTRZHRM6N7UoSaAKeK0',
+         *       },
+         *     ],
+         *   },
+         * );
+         * ```
+         */
+        purge(queueID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/queues/${queueID}/messages/purge`, {
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -72410,14 +75376,14 @@ exports.BGP = exports.BaseBGP = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
-const RoutesAPI = tslib_1.__importStar(__nccwpck_require__(16903));
-const routes_1 = __nccwpck_require__(16903);
 const HijacksAPI = tslib_1.__importStar(__nccwpck_require__(93194));
 const hijacks_1 = __nccwpck_require__(93194);
 const IPsAPI = tslib_1.__importStar(__nccwpck_require__(3838));
 const ips_1 = __nccwpck_require__(3838);
 const LeaksAPI = tslib_1.__importStar(__nccwpck_require__(45750));
 const leaks_1 = __nccwpck_require__(45750);
+const RoutesAPI = tslib_1.__importStar(__nccwpck_require__(6644));
+const routes_1 = __nccwpck_require__(6644);
 const RPKIAPI = tslib_1.__importStar(__nccwpck_require__(73332));
 const rpki_1 = __nccwpck_require__(73332);
 const TopAPI = tslib_1.__importStar(__nccwpck_require__(35258));
@@ -72734,15 +75700,66 @@ exports.Leaks = Leaks;
 
 /***/ }),
 
-/***/ 16903:
+/***/ 72236:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Paths = exports.BasePaths = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BasePaths = /* @__PURE__ */ (() => {
+    class BasePaths extends resource_1.APIResource {
+        /**
+         * Retrieves the paths an AS uses to reach the tier-1 clique, derived from
+         * RouteViews RIB snapshots. Each entry is an ordered AS-path segment (from the
+         * queried AS toward a tier-1) with the number of observed paths and peers, and the
+         * collectors that observed it. By default segments are merged across all active
+         * collectors; pass "collector" to scope to one. The response also includes an
+         * "asnInfo" map (keyed by ASN) with the name and country for every ASN in the
+         * returned segments plus the queried ASN (best-effort; null when unavailable).
+         *
+         * @example
+         * ```ts
+         * const paths = await client.radar.bgp.routes.paths.list(174);
+         * ```
+         */
+        list(asn, query = {}, options) {
+            return this._client.get((0, path_1.path) `/radar/bgp/routes/paths/${asn}`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BasePaths._key = Object.freeze([
+        'radar',
+        'bgp',
+        'routes',
+        'paths',
+    ]);
+    return BasePaths;
+})();
+exports.BasePaths = BasePaths;
+class Paths extends BasePaths {
+}
+exports.Paths = Paths;
+//# sourceMappingURL=paths.js.map
+
+/***/ }),
+
+/***/ 6644:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Routes = exports.BaseRoutes = void 0;
+const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const PathsAPI = tslib_1.__importStar(__nccwpck_require__(72236));
+const paths_1 = __nccwpck_require__(72236);
+const UpstreamsAPI = tslib_1.__importStar(__nccwpck_require__(11754));
+const upstreams_1 = __nccwpck_require__(11754);
 var BaseRoutes = /* @__PURE__ */ (() => {
     class BaseRoutes extends resource_1.APIResource {
         /**
@@ -72810,10 +75827,70 @@ var BaseRoutes = /* @__PURE__ */ (() => {
     return BaseRoutes;
 })();
 exports.BaseRoutes = BaseRoutes;
-class Routes extends BaseRoutes {
-}
+var Routes = /* @__PURE__ */ (() => {
+    class Routes extends BaseRoutes {
+        constructor() {
+            super(...arguments);
+            this.upstreams = new UpstreamsAPI.Upstreams(this._client);
+            this.paths = new PathsAPI.Paths(this._client);
+        }
+    }
+    Routes.Upstreams = upstreams_1.Upstreams;
+    Routes.BaseUpstreams = upstreams_1.BaseUpstreams;
+    Routes.Paths = paths_1.Paths;
+    Routes.BasePaths = paths_1.BasePaths;
+    return Routes;
+})();
 exports.Routes = Routes;
 //# sourceMappingURL=routes.js.map
+
+/***/ }),
+
+/***/ 11754:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Upstreams = exports.BaseUpstreams = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseUpstreams = /* @__PURE__ */ (() => {
+    class BaseUpstreams extends resource_1.APIResource {
+        /**
+         * Retrieves the share of an AS’s observed paths carried by each direct upstream
+         * over time, derived from RouteViews RIB snapshots across all collectors (the
+         * combined product). Each upstream ASN is returned as its own series of shares
+         * (0–1); the least-significant upstreams beyond the requested limit are grouped
+         * into an "OTHER" series. Series share a common set of timestamps.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.radar.bgp.routes.upstreams.timeseries(174);
+         * ```
+         */
+        timeseries(asn, query = {}, options) {
+            return this._client.get((0, path_1.path) `/radar/bgp/routes/upstreams/${asn}/timeseries`, {
+                query,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseUpstreams._key = Object.freeze([
+        'radar',
+        'bgp',
+        'routes',
+        'upstreams',
+    ]);
+    return BaseUpstreams;
+})();
+exports.BaseUpstreams = BaseUpstreams;
+class Upstreams extends BaseUpstreams {
+}
+exports.Upstreams = Upstreams;
+//# sourceMappingURL=upstreams.js.map
 
 /***/ }),
 
@@ -77607,8 +80684,8 @@ var BaseRateLimits = /* @__PURE__ */ (() => {
      */
     class BaseRateLimits extends resource_1.APIResource {
         /**
-         * Creates a new rate limit for a zone. Refer to the object definition for a list
-         * of required attributes.
+         * **Deprecated**: This endpoint returns 410 Gone. Please use the Rulesets API
+         * instead.
          *
          * @deprecated Rate limiting API is deprecated in favour of using the Ruleset Engine. See https://developers.cloudflare.com/fundamentals/api/reference/deprecations/#rate-limiting-api-previous-version for full details.
          */
@@ -77617,7 +80694,8 @@ var BaseRateLimits = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/zones/${zone_id}/rate_limits`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetches the rate limits for a zone.
+         * **Deprecated**: This endpoint returns 410 Gone. Please use the Rulesets API
+         * instead.
          *
          * @deprecated Rate limiting API is deprecated in favour of using the Ruleset Engine. See https://developers.cloudflare.com/fundamentals/api/reference/deprecations/#rate-limiting-api-previous-version for full details.
          */
@@ -77629,7 +80707,8 @@ var BaseRateLimits = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Deletes an existing rate limit.
+         * **Deprecated**: This endpoint returns 410 Gone. Please use the Rulesets API
+         * instead.
          *
          * @deprecated Rate limiting API is deprecated in favour of using the Ruleset Engine. See https://developers.cloudflare.com/fundamentals/api/reference/deprecations/#rate-limiting-api-previous-version for full details.
          */
@@ -77638,7 +80717,8 @@ var BaseRateLimits = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/zones/${zone_id}/rate_limits/${rateLimitID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates an existing rate limit.
+         * **Deprecated**: This endpoint returns 410 Gone. Please use the Rulesets API
+         * instead.
          *
          * @deprecated Rate limiting API is deprecated in favour of using the Ruleset Engine. See https://developers.cloudflare.com/fundamentals/api/reference/deprecations/#rate-limiting-api-previous-version for full details.
          */
@@ -77650,7 +80730,8 @@ var BaseRateLimits = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Fetches the details of a rate limit.
+         * **Deprecated**: This endpoint returns 410 Gone. Please use the Rulesets API
+         * instead.
          *
          * @deprecated Rate limiting API is deprecated in favour of using the Ruleset Engine. See https://developers.cloudflare.com/fundamentals/api/reference/deprecations/#rate-limiting-api-previous-version for full details.
          */
@@ -79162,6 +82243,767 @@ exports.Webhooks = Webhooks;
 
 /***/ }),
 
+/***/ 78098:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Extensions = exports.BaseExtensions = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseExtensions = /* @__PURE__ */ (() => {
+    class BaseExtensions extends resource_1.APIResource {
+        /**
+         * Returns metadata and JSON Schema documents describing the expected input
+         * structure for registration operations on each supported extension (TLD).
+         *
+         * This endpoint uses cursor-based pagination. Results are ordered by extension
+         * name by default. To fetch the next page, pass the `cursor` value from the
+         * `result_info` object in the response as the `cursor` query parameter in your
+         * next request. An empty `cursor` string indicates there are no more pages.
+         *
+         * Supports HTTP conditional GET via `ETag`. Include the `ETag` value from a
+         * previous response in an `If-None-Match` header to receive a `304 Not Modified`
+         * when the data has not changed.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const extensionListResponse of client.registrarSandbox.extensions.list(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/extensions`, (pagination_1.CursorPagination), { query, ...options });
+        }
+        /**
+         * Returns metadata and JSON Schema documents describing the expected input
+         * structure for registration operations on a specific extension (TLD).
+         *
+         * Supports HTTP conditional GET via `ETag`. Include the `ETag` value from a
+         * previous response in an `If-None-Match` header to receive a `304 Not Modified`
+         * when the data has not changed.
+         *
+         * @example
+         * ```ts
+         * const extension =
+         *   await client.registrarSandbox.extensions.get('com', {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
+         * ```
+         */
+        get(extension, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/extensions/${extension}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseExtensions._key = Object.freeze([
+        'registrarSandbox',
+        'extensions',
+    ]);
+    return BaseExtensions;
+})();
+exports.BaseExtensions = BaseExtensions;
+class Extensions extends BaseExtensions {
+}
+exports.Extensions = Extensions;
+//# sourceMappingURL=extensions.js.map
+
+/***/ }),
+
+/***/ 80167:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RegistrarSandbox = exports.BaseRegistrarSandbox = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const ExtensionsAPI = tslib_1.__importStar(__nccwpck_require__(78098));
+const extensions_1 = __nccwpck_require__(78098);
+const RegistrationStatusAPI = tslib_1.__importStar(__nccwpck_require__(20604));
+const registration_status_1 = __nccwpck_require__(20604);
+const RegistrationsAPI = tslib_1.__importStar(__nccwpck_require__(66416));
+const registrations_1 = __nccwpck_require__(66416);
+const UpdateStatusAPI = tslib_1.__importStar(__nccwpck_require__(7008));
+const update_status_1 = __nccwpck_require__(7008);
+const path_1 = __nccwpck_require__(91121);
+var BaseRegistrarSandbox = /* @__PURE__ */ (() => {
+    /**
+     * Use the Registrar Sandbox API to test domain search, availability checks,
+     * registration, and domain management flows without buying real domains.
+     *
+     * **This API is a test environment for the production Registrar API.**
+     *
+     * ## Prerequisites
+     *
+     * Before using this API, make sure you have:
+     *
+     * 1. **Cloudflare account** — the caller must have a valid Cloudflare account.
+     * 2. **API authentication** — create an API token with Registrar Sandbox permissions.
+     *
+     * ## How the Sandbox API differs from the production Registrar API
+     *
+     * Because the Sandbox API is intended for testing, it behaves differently from
+     * the production Registrar API in a few important ways:
+     *
+     * 1. **No billing** — you will not be charged real money for purchasing a domain.
+     * 2. **No real domains** — purchased domains are test records and will not be
+     *   reachable on the Internet.
+     * 3. **No DNS zones** — purchasing a domain does not create a zone resource.
+     * 4. **No Registration Express Mode** — you must provide full contact data.
+     *
+     * Sandbox purchases are still persisted. If you purchase a domain in the sandbox,
+     * that domain will not be available for others to purchase in the sandbox.
+     *
+     * ## Terminology: domain extension
+     *
+     * Throughout this API, "extension" refers to the domain extension part of a fully
+     * qualified domain name — the portion after the registrable label. For example,
+     * in `example.co.uk`, the extension is `co.uk` (not just `uk`). This covers both
+     * top-level domains like `com` and multi-level extensions like `co.uk`. This is
+     * distinct from other uses of the word "extension" (e.g., EPP extensions).
+     *
+     * ## Supported extensions
+     *
+     * The Sandbox API currently supports programmatic registration for these
+     * extensions:
+     *
+     * `com`, `net`
+     *
+     * The production Registrar API supports 40+ extensions.
+     *
+     * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions
+     * not listed above can be registered at `https://dash.cloudflare.com/{account_id}/domains/registrations`.
+     *
+     * ## Typical workflow
+     *
+     * 1. **Search** — call `GET /domain-search?q={keyword}` to discover available domains.
+     * 2. **Check** — call `POST /domain-check` with candidate domains to verify real-time
+     *   availability and pricing.
+     * 3. **Review the response** — if `registrable: false`, inspect `reason` to
+     *   understand whether the domain is unavailable, the extension is not supported
+     *   by this API, the extension is not supported by Cloudflare Registrar at all,
+     *   or the extension's registry has frozen new registrations.
+     * 4. **Handle premium domains** — if `tier: premium`, premium registration is
+     *   not currently supported by this API. The Sandbox API currently supports
+     *   only `com` and `net`, which do not have premium registrations, but clients
+     *   should still handle this response for consistency with the production
+     *   Registrar API. Surface the premium pricing to the user, but do not proceed
+     *   to `POST /registrations` for that domain.
+     * 5. **Observe the registration schema** — call `GET /extensions/:extension_name`
+     *   to discover the required values for registering this extension.
+     * 6. **Register** — call `POST /registrations` with the chosen domain name for
+     *   supported non-premium registrations.
+     * 7. **Confirm completion** — if the response is `201 Created`, registration
+     *   completed within the default timeout and no polling is needed.
+     * 8. **Poll when needed** — if the response is `202 Accepted`, poll
+     *   `links.self` from the workflow response.
+     * 9. **Stop for user action** — if `state: action_required`, stop polling and
+     *   surface `context.action` to the user.
+     *   The workflow will not resolve on its own.
+     * 10. **Continue when blocked** — if `state: blocked`, continue polling and
+     *   inform the user that a third party, such as the extension registry or losing
+     *   registrar, is delaying progress.
+     * 11. **Review failures before retrying** — if `state: failed`, review
+     *   `error.code` and `error.message`, then decide whether user action or a new
+     *   Check call is needed.
+     *
+     * ## Default behavior for mutating operations
+     *
+     * By default, mutating operations such as create and update hold the connection
+     * for a bounded, server-defined amount of time while the operation completes.
+     * In most cases, the response contains a completed workflow status and no
+     * polling is required.
+     *
+     * - **Completed within the synchronous wait window:** Returns `201` (create)
+     * or `200` (update) with a `workflow_status` where `state: succeeded` and
+     * `completed: true`.
+     * - **Still processing after the synchronous wait window:** Returns
+     * `202 Accepted` with a `workflow_status` where `completed: false`. Use
+     * the `links.self` URL to poll for completion.
+     *
+     * ## Non-blocking mode
+     *
+     * To receive an immediate `202 Accepted` response without waiting, send the
+     * `Prefer: respond-async` request header (RFC 7240). The server will acknowledge
+     * it with a `Preference-Applied: respond-async` response header.
+     *
+     * ## Polling
+     *
+     * When the response is `202`, poll the workflow status endpoint indicated by
+     * `links.self` in the response body until the workflow reaches a terminal
+     * state or requires user action.
+     */
+    class BaseRegistrarSandbox extends resource_1.APIResource {
+        /**
+         * Performs real-time, authoritative availability checks directly against domain
+         * registries. Use this endpoint to verify a domain is available before attempting
+         * registration via `POST /registrations`.
+         *
+         * **Important:** Unlike the Search endpoint, these results are authoritative and
+         * reflect current registry status. Always check availability immediately before
+         * registration as domain status can change rapidly.
+         *
+         * **Note:** This endpoint uses POST to accept a list of domains in the request
+         * body. It is a read-only operation — it does not create, modify, or reserve any
+         * domains.
+         *
+         * ### Extension support
+         *
+         * Only domains on extensions supported for programmatic registration by this API
+         * can be registered. If you check a domain on an unsupported extension, the
+         * response will include `registrable: false` with a `reason` field explaining why:
+         *
+         * - `extension_not_supported_via_api` — Cloudflare Registrar supports this
+         *   extension in the dashboard, but it is not yet available for programmatic
+         *   registration via this API. Register via
+         *   `https://dash.cloudflare.com/{account_id}/domains/registrations` instead.
+         * - `extension_not_supported` — This extension is not supported by Cloudflare
+         *   Registrar.
+         * - `extension_disallows_registration` — The extension's registry has temporarily
+         *   or permanently frozen new registrations. No registrar can register domains on
+         *   this extension at this time.
+         * - `domain_premium` — The domain is premium priced. Premium registration is not
+         *   currently supported by this API.
+         * - `domain_unavailable` — The domain is already registered, reserved, or
+         *   otherwise not available for registration on a supported extension.
+         *
+         * The `reason` field is only present when `registrable` is `false`.
+         *
+         * ### Behavior
+         *
+         * - Maximum 20 domains per request
+         * - Pricing is only returned for domains where `registrable: true`
+         * - Results are not cached; each request queries the registry
+         *
+         * ### Workflow
+         *
+         * 1. Call this endpoint with domains the user wants to register.
+         * 2. For each domain where `registrable: true`, present pricing to the user.
+         * 3. If `tier: premium`, note that premium registration is not currently supported
+         *    by this API and do not proceed to `POST /registrations`.
+         * 4. Proceed to `POST /registrations` only for supported non-premium domains.
+         *
+         * @example
+         * ```ts
+         * const response = await client.registrarSandbox.check({
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   domains: [
+         *     'myawesomebrand.com',
+         *     'myawesomebrand.net',
+         *     'myawesomebrand.org',
+         *     'myawesomebrand.app',
+         *     'myawesomebrand.dev',
+         *   ],
+         * });
+         * ```
+         */
+        check(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/domain-check`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Searches for domain name suggestions based on a keyword, phrase, or partial
+         * domain name. Returns a list of potentially available domains with pricing
+         * information.
+         *
+         * **Important:** Results are non-authoritative and based on cached data. Always
+         * use the `/domain-check` endpoint to verify real-time availability before
+         * attempting registration.
+         *
+         * Suggestions are scoped to extensions supported for programmatic registration via
+         * this API (`POST /registrations`). Domains on unsupported extensions will not
+         * appear in results, even if they are available at the registry level.
+         *
+         * ### Use cases
+         *
+         * - Brand name discovery (e.g., "acme corp" → acmecorp.com, acmecorp.dev)
+         * - Keyword-based suggestions (e.g., "coffee shop" → coffeeshop.com,
+         *   mycoffeeshop.net)
+         * - Alternative extension discovery (e.g., "example.com" → example.com,
+         *   example.app, example.xyz)
+         *
+         * ### Workflow
+         *
+         * 1. Call this endpoint with a keyword or domain name.
+         * 2. Present suggestions to the user.
+         * 3. Call `/domain-check` with the user's chosen domains to confirm real-time
+         *    availability and pricing.
+         * 4. Proceed to `POST /registrations` only for supported non-premium domains where
+         *    the Check response returns `registrable: true`.
+         *
+         * **Note:** Searching with just a domain extension (e.g., "com" or ".app") is not
+         * supported. Provide a keyword or domain name.
+         *
+         * @example
+         * ```ts
+         * const response = await client.registrarSandbox.search({
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   q: 'x',
+         * });
+         * ```
+         */
+        search(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/domain-search`, {
+                query,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseRegistrarSandbox._key = Object.freeze(['registrarSandbox']);
+    return BaseRegistrarSandbox;
+})();
+exports.BaseRegistrarSandbox = BaseRegistrarSandbox;
+var RegistrarSandbox = /* @__PURE__ */ (() => {
+    /**
+     * Use the Registrar Sandbox API to test domain search, availability checks,
+     * registration, and domain management flows without buying real domains.
+     *
+     * **This API is a test environment for the production Registrar API.**
+     *
+     * ## Prerequisites
+     *
+     * Before using this API, make sure you have:
+     *
+     * 1. **Cloudflare account** — the caller must have a valid Cloudflare account.
+     * 2. **API authentication** — create an API token with Registrar Sandbox permissions.
+     *
+     * ## How the Sandbox API differs from the production Registrar API
+     *
+     * Because the Sandbox API is intended for testing, it behaves differently from
+     * the production Registrar API in a few important ways:
+     *
+     * 1. **No billing** — you will not be charged real money for purchasing a domain.
+     * 2. **No real domains** — purchased domains are test records and will not be
+     *   reachable on the Internet.
+     * 3. **No DNS zones** — purchasing a domain does not create a zone resource.
+     * 4. **No Registration Express Mode** — you must provide full contact data.
+     *
+     * Sandbox purchases are still persisted. If you purchase a domain in the sandbox,
+     * that domain will not be available for others to purchase in the sandbox.
+     *
+     * ## Terminology: domain extension
+     *
+     * Throughout this API, "extension" refers to the domain extension part of a fully
+     * qualified domain name — the portion after the registrable label. For example,
+     * in `example.co.uk`, the extension is `co.uk` (not just `uk`). This covers both
+     * top-level domains like `com` and multi-level extensions like `co.uk`. This is
+     * distinct from other uses of the word "extension" (e.g., EPP extensions).
+     *
+     * ## Supported extensions
+     *
+     * The Sandbox API currently supports programmatic registration for these
+     * extensions:
+     *
+     * `com`, `net`
+     *
+     * The production Registrar API supports 40+ extensions.
+     *
+     * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions
+     * not listed above can be registered at `https://dash.cloudflare.com/{account_id}/domains/registrations`.
+     *
+     * ## Typical workflow
+     *
+     * 1. **Search** — call `GET /domain-search?q={keyword}` to discover available domains.
+     * 2. **Check** — call `POST /domain-check` with candidate domains to verify real-time
+     *   availability and pricing.
+     * 3. **Review the response** — if `registrable: false`, inspect `reason` to
+     *   understand whether the domain is unavailable, the extension is not supported
+     *   by this API, the extension is not supported by Cloudflare Registrar at all,
+     *   or the extension's registry has frozen new registrations.
+     * 4. **Handle premium domains** — if `tier: premium`, premium registration is
+     *   not currently supported by this API. The Sandbox API currently supports
+     *   only `com` and `net`, which do not have premium registrations, but clients
+     *   should still handle this response for consistency with the production
+     *   Registrar API. Surface the premium pricing to the user, but do not proceed
+     *   to `POST /registrations` for that domain.
+     * 5. **Observe the registration schema** — call `GET /extensions/:extension_name`
+     *   to discover the required values for registering this extension.
+     * 6. **Register** — call `POST /registrations` with the chosen domain name for
+     *   supported non-premium registrations.
+     * 7. **Confirm completion** — if the response is `201 Created`, registration
+     *   completed within the default timeout and no polling is needed.
+     * 8. **Poll when needed** — if the response is `202 Accepted`, poll
+     *   `links.self` from the workflow response.
+     * 9. **Stop for user action** — if `state: action_required`, stop polling and
+     *   surface `context.action` to the user.
+     *   The workflow will not resolve on its own.
+     * 10. **Continue when blocked** — if `state: blocked`, continue polling and
+     *   inform the user that a third party, such as the extension registry or losing
+     *   registrar, is delaying progress.
+     * 11. **Review failures before retrying** — if `state: failed`, review
+     *   `error.code` and `error.message`, then decide whether user action or a new
+     *   Check call is needed.
+     *
+     * ## Default behavior for mutating operations
+     *
+     * By default, mutating operations such as create and update hold the connection
+     * for a bounded, server-defined amount of time while the operation completes.
+     * In most cases, the response contains a completed workflow status and no
+     * polling is required.
+     *
+     * - **Completed within the synchronous wait window:** Returns `201` (create)
+     * or `200` (update) with a `workflow_status` where `state: succeeded` and
+     * `completed: true`.
+     * - **Still processing after the synchronous wait window:** Returns
+     * `202 Accepted` with a `workflow_status` where `completed: false`. Use
+     * the `links.self` URL to poll for completion.
+     *
+     * ## Non-blocking mode
+     *
+     * To receive an immediate `202 Accepted` response without waiting, send the
+     * `Prefer: respond-async` request header (RFC 7240). The server will acknowledge
+     * it with a `Preference-Applied: respond-async` response header.
+     *
+     * ## Polling
+     *
+     * When the response is `202`, poll the workflow status endpoint indicated by
+     * `links.self` in the response body until the workflow reaches a terminal
+     * state or requires user action.
+     */
+    class RegistrarSandbox extends BaseRegistrarSandbox {
+        constructor() {
+            super(...arguments);
+            this.registrations = new RegistrationsAPI.Registrations(this._client);
+            this.registrationStatus = new RegistrationStatusAPI.RegistrationStatus(this._client);
+            this.updateStatus = new UpdateStatusAPI.UpdateStatus(this._client);
+            this.extensions = new ExtensionsAPI.Extensions(this._client);
+        }
+    }
+    RegistrarSandbox.Registrations = registrations_1.Registrations;
+    RegistrarSandbox.BaseRegistrations = registrations_1.BaseRegistrations;
+    RegistrarSandbox.RegistrationStatus = registration_status_1.RegistrationStatus;
+    RegistrarSandbox.BaseRegistrationStatus = registration_status_1.BaseRegistrationStatus;
+    RegistrarSandbox.UpdateStatus = update_status_1.UpdateStatus;
+    RegistrarSandbox.BaseUpdateStatus = update_status_1.BaseUpdateStatus;
+    RegistrarSandbox.Extensions = extensions_1.Extensions;
+    RegistrarSandbox.BaseExtensions = extensions_1.BaseExtensions;
+    return RegistrarSandbox;
+})();
+exports.RegistrarSandbox = RegistrarSandbox;
+//# sourceMappingURL=registrar-sandbox.js.map
+
+/***/ }),
+
+/***/ 20604:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RegistrationStatus = exports.BaseRegistrationStatus = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseRegistrationStatus = /* @__PURE__ */ (() => {
+    class BaseRegistrationStatus extends resource_1.APIResource {
+        /**
+         * Returns the current status of a domain registration workflow.
+         *
+         * Use this endpoint to poll for completion when the POST response returned
+         * `202 Accepted`. The URL is provided in the `links.self` field of the workflow
+         * status response.
+         *
+         * Poll this endpoint until the workflow reaches a terminal state or a state that
+         * requires user attention.
+         *
+         * **Terminal states:** `succeeded` and `failed` are terminal and always have
+         * `completed: true`.
+         *
+         * **Non-terminal states:**
+         *
+         * - `action_required` has `completed: false` and will not resolve on its own. The
+         *   workflow is paused pending user intervention.
+         * - `blocked` has `completed: false` and indicates the workflow is waiting on a
+         *   third party such as the extension registry or losing registrar. Continue
+         *   polling while informing the user of the delay.
+         *
+         * Use increasing backoff between polls. When `state: blocked`, use a longer
+         * polling interval and do not poll indefinitely.
+         *
+         * A naive polling loop that only checks `completed` can run indefinitely when
+         * `state: action_required`. Break explicitly on `action_required`:
+         *
+         * ```js
+         * let status;
+         * do {
+         *   await new Promise((r) => setTimeout(r, 2000));
+         *   status = await cloudflare.request({
+         *     method: "GET",
+         *     path: reg.result.links.self,
+         *   });
+         * } while (!status.result.completed && status.result.state !== "action_required");
+         *
+         * if (status.result.state === "action_required") {
+         *   // Surface context.action and context.confirmation_sent_to to the user.
+         *   // Do not re-submit the registration request.
+         * }
+         * ```
+         *
+         * @example
+         * ```ts
+         * const registrationStatus =
+         *   await client.registrarSandbox.registrationStatus.get(
+         *     'example.com',
+         *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   );
+         * ```
+         */
+        get(domainName, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/registrations/${domainName}/registration-status`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseRegistrationStatus._key = Object.freeze([
+        'registrarSandbox',
+        'registrationStatus',
+    ]);
+    return BaseRegistrationStatus;
+})();
+exports.BaseRegistrationStatus = BaseRegistrationStatus;
+class RegistrationStatus extends BaseRegistrationStatus {
+}
+exports.RegistrationStatus = RegistrationStatus;
+//# sourceMappingURL=registration-status.js.map
+
+/***/ }),
+
+/***/ 66416:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Registrations = exports.BaseRegistrations = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const headers_1 = __nccwpck_require__(24644);
+const path_1 = __nccwpck_require__(91121);
+var BaseRegistrations = /* @__PURE__ */ (() => {
+    class BaseRegistrations extends resource_1.APIResource {
+        /**
+         * Starts a domain registration workflow.
+         *
+         * ### Prerequisites
+         *
+         * - The account must not already be at the maximum supported domain limit. A
+         *   single account may own up to 100 domains in total across registrations created
+         *   through either the dashboard or this API.
+         * - The domain must be on a supported extension for programmatic registration.
+         * - Use `POST /domain-check` immediately before calling this endpoint to confirm
+         *   real-time availability and pricing.
+         *
+         * ### Defaults
+         *
+         * - `years`: defaults to the extension's minimum registration period (1 year for
+         *   most extensions, but varies — for example, `.ai` (if supported) requires a
+         *   minimum of 2 years).
+         * - `auto_renew`: defaults to `false`. Setting it to `true` is an explicit opt-in
+         *   authorizing Cloudflare to charge the account's default payment method up to 30
+         *   days before domain expiry to renew the registration. Renewal pricing may
+         *   change over time based on registry pricing.
+         * - `privacy_mode`: defaults to `redaction`.
+         *
+         * ### Premium domains
+         *
+         * Premium domain registration is not currently supported by this API. If
+         * `POST /domain-check` returns `tier: premium`, do not call this endpoint for that
+         * domain.
+         *
+         * ### Response behavior
+         *
+         * By default, the server holds the connection for a bounded, server-defined amount
+         * of time while the registration completes. Most registrations finish within this
+         * window and return `201 Created` with a completed workflow status.
+         *
+         * If the registration is still processing after this synchronous wait window, the
+         * server returns `202 Accepted`. Poll the URL in `links.self` to track progress.
+         *
+         * To skip the wait and receive an immediate `202`, send `Prefer: respond-async`.
+         *
+         * @example
+         * ```ts
+         * const registration = await client.registrarSandbox.registrations.create({
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   domain_name: 'my-brand-example.io',
+         *   contacts: {
+         *     administrator: { ... },
+         *     billing: { ... },
+         *     registrant: { ... },
+         *     technical: { ... },
+         *   },
+         *   years: 1,
+         * });
+         * ```
+         */
+        create(params, options) {
+            const { account_id, Prefer, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/registrations`, {
+                body,
+                ...options,
+                headers: (0, headers_1.buildHeaders)([{ ...(Prefer != null ? { Prefer: Prefer } : undefined) }, options?.headers]),
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns a paginated list of domain registrations owned by the account.
+         *
+         * This endpoint uses cursor-based pagination. Results are ordered by registration
+         * date by default. To fetch the next page, pass the `cursor` value from the
+         * `result_info` object in the response as the `cursor` query parameter in your
+         * next request. An empty `cursor` string indicates there are no more pages.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const registrationListResponse of client.registrarSandbox.registrations.list(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/registrations`, (pagination_1.CursorPagination), { query, ...options });
+        }
+        /**
+         * Updates an existing domain registration.
+         *
+         * By default, the server holds the connection for a bounded, server-defined amount
+         * of time while the update completes. Most updates finish within this window and
+         * return `200 OK` with a completed workflow status.
+         *
+         * If the update is still processing after this synchronous wait window, the server
+         * returns `202 Accepted`. Poll the URL in `links.self` to track progress.
+         *
+         * To skip the wait and receive an immediate `202`, send `Prefer: respond-async`.
+         *
+         * This endpoint currently supports updating `auto_renew` only.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.registrarSandbox.registrations.edit(
+         *     'example.com',
+         *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   );
+         * ```
+         */
+        edit(domainName, params, options) {
+            const { account_id, Prefer, ...body } = params;
+            return this._client.patch((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/registrations/${domainName}`, {
+                body,
+                ...options,
+                headers: (0, headers_1.buildHeaders)([
+                    { ...(Prefer?.toString() != null ? { Prefer: Prefer?.toString() } : undefined) },
+                    options?.headers,
+                ]),
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns the current state of a domain registration.
+         *
+         * This is the canonical read endpoint for a domain you own. It returns the full
+         * registration resource including current settings and expiration. When the
+         * registration resource is ready, both `created_at` and `expires_at` are present
+         * in the response.
+         *
+         * @example
+         * ```ts
+         * const registration =
+         *   await client.registrarSandbox.registrations.get(
+         *     'example.com',
+         *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   );
+         * ```
+         */
+        get(domainName, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/registrations/${domainName}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseRegistrations._key = Object.freeze([
+        'registrarSandbox',
+        'registrations',
+    ]);
+    return BaseRegistrations;
+})();
+exports.BaseRegistrations = BaseRegistrations;
+class Registrations extends BaseRegistrations {
+}
+exports.Registrations = Registrations;
+//# sourceMappingURL=registrations.js.map
+
+/***/ }),
+
+/***/ 7008:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UpdateStatus = exports.BaseUpdateStatus = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseUpdateStatus = /* @__PURE__ */ (() => {
+    class BaseUpdateStatus extends resource_1.APIResource {
+        /**
+         * Returns the current status of a domain update workflow.
+         *
+         * Use this endpoint to poll for completion when the PATCH response returned
+         * `202 Accepted`. The URL is provided in the `links.self` field of the workflow
+         * status response.
+         *
+         * Poll this endpoint until the workflow reaches a terminal state or a state that
+         * requires user attention.
+         *
+         * Use increasing backoff between polls. When the workflow remains blocked on a
+         * third party, use a longer polling interval and do not poll indefinitely.
+         *
+         * @example
+         * ```ts
+         * const updateStatus =
+         *   await client.registrarSandbox.updateStatus.get(
+         *     'example.com',
+         *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   );
+         * ```
+         */
+        get(domainName, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/registrar-sandbox/registrations/${domainName}/update-status`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseUpdateStatus._key = Object.freeze([
+        'registrarSandbox',
+        'updateStatus',
+    ]);
+    return BaseUpdateStatus;
+})();
+exports.BaseUpdateStatus = BaseUpdateStatus;
+class UpdateStatus extends BaseUpdateStatus {
+}
+exports.UpdateStatus = UpdateStatus;
+//# sourceMappingURL=update-status.js.map
+
+/***/ }),
+
 /***/ 35177:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -79220,6 +83062,81 @@ exports.Domains = Domains;
 
 /***/ }),
 
+/***/ 39680:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Extensions = exports.BaseExtensions = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseExtensions = /* @__PURE__ */ (() => {
+    class BaseExtensions extends resource_1.APIResource {
+        /**
+         * Returns metadata and JSON Schema documents describing the expected input
+         * structure for registration operations on each supported extension (TLD).
+         *
+         * This endpoint uses cursor-based pagination. Results are ordered by extension
+         * name by default. To fetch the next page, pass the `cursor` value from the
+         * `result_info` object in the response as the `cursor` query parameter in your
+         * next request. An empty `cursor` string indicates there are no more pages.
+         *
+         * Supports HTTP conditional GET via `ETag`. Include the `ETag` value from a
+         * previous response in an `If-None-Match` header to receive a `304 Not Modified`
+         * when the data has not changed.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const extensionListResponse of client.registrar.extensions.list(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/registrar/extensions`, (pagination_1.CursorPagination), { query, ...options });
+        }
+        /**
+         * Returns metadata and JSON Schema documents describing the expected input
+         * structure for registration operations on a specific extension (TLD).
+         *
+         * Supports HTTP conditional GET via `ETag`. Include the `ETag` value from a
+         * previous response in an `If-None-Match` header to receive a `304 Not Modified`
+         * when the data has not changed.
+         *
+         * @example
+         * ```ts
+         * const extension = await client.registrar.extensions.get(
+         *   'com',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * );
+         * ```
+         */
+        get(extension, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/registrar/extensions/${extension}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseExtensions._key = Object.freeze([
+        'registrar',
+        'extensions',
+    ]);
+    return BaseExtensions;
+})();
+exports.BaseExtensions = BaseExtensions;
+class Extensions extends BaseExtensions {
+}
+exports.Extensions = Extensions;
+//# sourceMappingURL=extensions.js.map
+
+/***/ }),
+
 /***/ 36611:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -79232,6 +83149,8 @@ const tslib_1 = __nccwpck_require__(67590);
 const resource_1 = __nccwpck_require__(85550);
 const DomainsAPI = tslib_1.__importStar(__nccwpck_require__(35177));
 const domains_1 = __nccwpck_require__(35177);
+const ExtensionsAPI = tslib_1.__importStar(__nccwpck_require__(39680));
+const extensions_1 = __nccwpck_require__(39680);
 const RegistrationStatusAPI = tslib_1.__importStar(__nccwpck_require__(33818));
 const registration_status_1 = __nccwpck_require__(33818);
 const RegistrationsAPI = tslib_1.__importStar(__nccwpck_require__(48370));
@@ -79240,6 +83159,100 @@ const UpdateStatusAPI = tslib_1.__importStar(__nccwpck_require__(86390));
 const update_status_1 = __nccwpck_require__(86390);
 const path_1 = __nccwpck_require__(91121);
 var BaseRegistrar = /* @__PURE__ */ (() => {
+    /**
+     * Registrar API for searching, checking, registering, and managing domains through Cloudflare Registrar.
+     *
+     * ## Prerequisites
+     *
+     * Before using this API, ensure:
+     *
+     * 1. **Cloudflare account** — the caller must have a valid Cloudflare account.
+     * 2. **Billing profile** — the account must have a billing profile with a valid,
+     *   current default payment method (credit card or other accepted method).
+     *   This cannot be set up via API — the account owner must configure billing
+     *   at `https://dash.cloudflare.com/{account_id}/billing/payment-info` before
+     *   calling `POST /registrations`.
+     * 3. **API authentication** — use an API token or API key with the appropriate
+     *   Registrar permissions for the operations you are calling.
+     *
+     * ## Terminology: domain extension
+     *
+     * Throughout this API, "extension" refers to the domain extension part of a fully
+     * qualified domain name — the portion after the registrable label. For example,
+     * in `example.co.uk`, the extension is `co.uk` (not just `uk`). This covers both
+     * top-level domains like `com` and multi-level extensions like `co.uk`. This is
+     * distinct from other uses of the word "extension" (e.g., EPP extensions).
+     *
+     * ## Supported extensions
+     *
+     * This API supports programmatic registration for all extensions supported by
+     * the dashboard experience, with the following exceptions:
+     *
+     * `giving`, `mom`, `inc`, `lol`, `sh`, `link`, `cc`, `new`
+     *
+     * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions
+     * listed above can be registered at `https://dash.cloudflare.com/{account_id}/domains/registrations`.
+     *
+     * ## Typical workflow
+     *
+     * 1. **Search** — call `GET /domain-search?q={keyword}` to discover available domains.
+     * 2. **Check** — call `POST /domain-check` with candidate domains to verify real-time
+     *   availability and pricing.
+     * 3. **Review the response** — if `registrable: false`, inspect `reason` to
+     *   understand whether the domain is unavailable, the extension is not supported
+     *   by this API, the extension is not supported by Cloudflare Registrar at all,
+     *   or the extension's registry has frozen new registrations.
+     * 4. **Handle premium domains** — if `tier: premium`, premium registration is
+     *   not currently supported by this API. Surface the premium pricing to the user,
+     *   but do not proceed to `POST /registrations` for that domain.
+     * 5. **Observe the registration schema** — call `GET /extensions/:extension_name`
+     *   to discover the required values for registering this extension.
+     * 6. **Register** — call `POST /registrations` with the chosen domain name for
+     *   supported non-premium registrations.
+     * 7. **Confirm completion** — if the response is `201 Created`, registration
+     *   completed within the default timeout and no polling is needed.
+     * 8. **Poll when needed** — if the response is `202 Accepted`, poll
+     *   `links.self` from the workflow response.
+     * 9. **Stop for user action** — if `state: action_required`, stop polling and
+     *   surface `context.action` to the user.
+     *   The workflow will not resolve on its own.
+     * 10. **Continue when blocked** — if `state: blocked`, continue polling and
+     *   inform the user that a third party, such as the extension registry or losing
+     *   registrar, is delaying progress.
+     * 11. **Review failures before retrying** — if `state: failed`, review
+     *   `error.code` and `error.message`, then decide whether user action or a new
+     *   Check call is needed.
+     *
+     * **All successful domain registrations are non-refundable.** Once the registration
+     * workflow completes with `state: succeeded`, the charge cannot be reversed.
+     * Confirm pricing and domain choice with the user before calling `POST /registrations`.
+     *
+     * ## Default behavior for mutating operations
+     *
+     * By default, mutating operations such as create and update hold the connection
+     * for a bounded, server-defined amount of time while the operation completes.
+     * In most cases, the response contains a completed workflow status and no
+     * polling is required.
+     *
+     * - **Completed within the synchronous wait window:** Returns `201` (create)
+     * or `200` (update) with a `workflow_status` where `state: succeeded` and
+     * `completed: true`.
+     * - **Still processing after the synchronous wait window:** Returns
+     * `202 Accepted` with a `workflow_status` where `completed: false`. Use
+     * the `links.self` URL to poll for completion.
+     *
+     * ## Non-blocking mode
+     *
+     * To receive an immediate `202 Accepted` response without waiting, send the
+     * `Prefer: respond-async` request header (RFC 7240). The server will acknowledge
+     * it with a `Preference-Applied: respond-async` response header.
+     *
+     * ## Polling
+     *
+     * When the response is `202`, poll the workflow status endpoint indicated by
+     * `links.self` in the response body until the workflow reaches a terminal
+     * state or requires user action.
+     */
     class BaseRegistrar extends resource_1.APIResource {
         /**
          * Performs real-time, authoritative availability checks directly against domain
@@ -79365,6 +83378,100 @@ var BaseRegistrar = /* @__PURE__ */ (() => {
 })();
 exports.BaseRegistrar = BaseRegistrar;
 var Registrar = /* @__PURE__ */ (() => {
+    /**
+     * Registrar API for searching, checking, registering, and managing domains through Cloudflare Registrar.
+     *
+     * ## Prerequisites
+     *
+     * Before using this API, ensure:
+     *
+     * 1. **Cloudflare account** — the caller must have a valid Cloudflare account.
+     * 2. **Billing profile** — the account must have a billing profile with a valid,
+     *   current default payment method (credit card or other accepted method).
+     *   This cannot be set up via API — the account owner must configure billing
+     *   at `https://dash.cloudflare.com/{account_id}/billing/payment-info` before
+     *   calling `POST /registrations`.
+     * 3. **API authentication** — use an API token or API key with the appropriate
+     *   Registrar permissions for the operations you are calling.
+     *
+     * ## Terminology: domain extension
+     *
+     * Throughout this API, "extension" refers to the domain extension part of a fully
+     * qualified domain name — the portion after the registrable label. For example,
+     * in `example.co.uk`, the extension is `co.uk` (not just `uk`). This covers both
+     * top-level domains like `com` and multi-level extensions like `co.uk`. This is
+     * distinct from other uses of the word "extension" (e.g., EPP extensions).
+     *
+     * ## Supported extensions
+     *
+     * This API supports programmatic registration for all extensions supported by
+     * the dashboard experience, with the following exceptions:
+     *
+     * `giving`, `mom`, `inc`, `lol`, `sh`, `link`, `cc`, `new`
+     *
+     * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions
+     * listed above can be registered at `https://dash.cloudflare.com/{account_id}/domains/registrations`.
+     *
+     * ## Typical workflow
+     *
+     * 1. **Search** — call `GET /domain-search?q={keyword}` to discover available domains.
+     * 2. **Check** — call `POST /domain-check` with candidate domains to verify real-time
+     *   availability and pricing.
+     * 3. **Review the response** — if `registrable: false`, inspect `reason` to
+     *   understand whether the domain is unavailable, the extension is not supported
+     *   by this API, the extension is not supported by Cloudflare Registrar at all,
+     *   or the extension's registry has frozen new registrations.
+     * 4. **Handle premium domains** — if `tier: premium`, premium registration is
+     *   not currently supported by this API. Surface the premium pricing to the user,
+     *   but do not proceed to `POST /registrations` for that domain.
+     * 5. **Observe the registration schema** — call `GET /extensions/:extension_name`
+     *   to discover the required values for registering this extension.
+     * 6. **Register** — call `POST /registrations` with the chosen domain name for
+     *   supported non-premium registrations.
+     * 7. **Confirm completion** — if the response is `201 Created`, registration
+     *   completed within the default timeout and no polling is needed.
+     * 8. **Poll when needed** — if the response is `202 Accepted`, poll
+     *   `links.self` from the workflow response.
+     * 9. **Stop for user action** — if `state: action_required`, stop polling and
+     *   surface `context.action` to the user.
+     *   The workflow will not resolve on its own.
+     * 10. **Continue when blocked** — if `state: blocked`, continue polling and
+     *   inform the user that a third party, such as the extension registry or losing
+     *   registrar, is delaying progress.
+     * 11. **Review failures before retrying** — if `state: failed`, review
+     *   `error.code` and `error.message`, then decide whether user action or a new
+     *   Check call is needed.
+     *
+     * **All successful domain registrations are non-refundable.** Once the registration
+     * workflow completes with `state: succeeded`, the charge cannot be reversed.
+     * Confirm pricing and domain choice with the user before calling `POST /registrations`.
+     *
+     * ## Default behavior for mutating operations
+     *
+     * By default, mutating operations such as create and update hold the connection
+     * for a bounded, server-defined amount of time while the operation completes.
+     * In most cases, the response contains a completed workflow status and no
+     * polling is required.
+     *
+     * - **Completed within the synchronous wait window:** Returns `201` (create)
+     * or `200` (update) with a `workflow_status` where `state: succeeded` and
+     * `completed: true`.
+     * - **Still processing after the synchronous wait window:** Returns
+     * `202 Accepted` with a `workflow_status` where `completed: false`. Use
+     * the `links.self` URL to poll for completion.
+     *
+     * ## Non-blocking mode
+     *
+     * To receive an immediate `202 Accepted` response without waiting, send the
+     * `Prefer: respond-async` request header (RFC 7240). The server will acknowledge
+     * it with a `Preference-Applied: respond-async` response header.
+     *
+     * ## Polling
+     *
+     * When the response is `202`, poll the workflow status endpoint indicated by
+     * `links.self` in the response body until the workflow reaches a terminal
+     * state or requires user action.
+     */
     class Registrar extends BaseRegistrar {
         constructor() {
             super(...arguments);
@@ -79372,6 +83479,7 @@ var Registrar = /* @__PURE__ */ (() => {
             this.registrations = new RegistrationsAPI.Registrations(this._client);
             this.registrationStatus = new RegistrationStatusAPI.RegistrationStatus(this._client);
             this.updateStatus = new UpdateStatusAPI.UpdateStatus(this._client);
+            this.extensions = new ExtensionsAPI.Extensions(this._client);
         }
     }
     Registrar.Domains = domains_1.Domains;
@@ -79382,6 +83490,8 @@ var Registrar = /* @__PURE__ */ (() => {
     Registrar.BaseRegistrationStatus = registration_status_1.BaseRegistrationStatus;
     Registrar.UpdateStatus = update_status_1.UpdateStatus;
     Registrar.BaseUpdateStatus = update_status_1.BaseUpdateStatus;
+    Registrar.Extensions = extensions_1.Extensions;
+    Registrar.BaseExtensions = extensions_1.BaseExtensions;
     return Registrar;
 })();
 exports.Registrar = Registrar;
@@ -79504,23 +83614,6 @@ var BaseRegistrations = /* @__PURE__ */ (() => {
          * - Use `POST /domain-check` immediately before calling this endpoint to confirm
          *   real-time availability and pricing.
          *
-         * ### Supported extensions
-         *
-         * In this API, "extension" means the full registrable suffix after the domain
-         * label. For example, in `example.co.uk`, the extension is `co.uk`.
-         *
-         * Programmatic registration is currently supported for:
-         *
-         * `com`, `org`, `net`, `app`, `dev`, `cc`, `xyz`, `info`, `cloud`, `studio`,
-         * `live`, `link`, `pro`, `tech`, `fyi`, `shop`, `online`, `tools`, `run`, `games`,
-         * `build`, `systems`, `world`, `news`, `site`, `network`, `chat`, `space`,
-         * `family`, `page`, `life`, `group`, `email`, `solutions`, `day`, `blog`, `ing`,
-         * `icu`, `academy`, `today`
-         *
-         * Cloudflare Registrar supports 400+ extensions in the dashboard. Extensions not
-         * listed above can still be registered at
-         * `https://dash.cloudflare.com/{account_id}/domains/registrations`.
-         *
          * ### Express mode
          *
          * The only required field is `domain_name`. If `contacts` is omitted, the system
@@ -79559,11 +83652,17 @@ var BaseRegistrations = /* @__PURE__ */ (() => {
          *
          * @example
          * ```ts
-         * const workflowStatus =
-         *   await client.registrar.registrations.create({
-         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
-         *     domain_name: 'my-new-startup.com',
-         *   });
+         * const workflowStatus = await client.registrar.registrations.create({
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   domain_name: 'my-brand-example.io',
+         *   contacts: {
+         *     administrator: { ... },
+         *     billing: { ... },
+         *     registrant: { ... },
+         *     technical: { ... },
+         *   },
+         *   years: 1,
+         * });
          * ```
          */
         create(params, options) {
@@ -79764,7 +83863,11 @@ const path_1 = __nccwpck_require__(91121);
 var BaseTraces = /* @__PURE__ */ (() => {
     class BaseTraces extends resource_1.APIResource {
         /**
-         * Request Trace
+         * Traces a simulated HTTP request through Cloudflare's edge to analyze how rules,
+         * settings, and configurations would process the request. Useful for debugging
+         * firewall rules, page rules, and other request transformations without sending
+         * actual traffic. Supports custom headers, cookies, body content, and geolocation
+         * context.
          *
          * @example
          * ```ts
@@ -79825,8 +83928,12 @@ const path_1 = __nccwpck_require__(91121);
 var BaseRecipients = /* @__PURE__ */ (() => {
     class BaseRecipients extends resource_1.APIResource {
         /**
-         * Adds a recipient to a resource share, granting them access to the shared
-         * resources.
+         * Adds a single recipient to an account-targeted resource share, granting them
+         * access to the shared resources. The recipient account must belong to the same
+         * organization as the share owner.
+         *
+         * To replace the entire recipient list in one call, use
+         * `PUT /accounts/{account_id}/shares/{share_id}/recipients` instead.
          *
          * @example
          * ```ts
@@ -79845,7 +83952,10 @@ var BaseRecipients = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List share recipients by share ID.
+         * List share recipients by share ID. Returns **all** recipients regardless of
+         * their `association_status` (associating, associated, disassociating,
+         * disassociated). Callers that want only "active" recipients must filter
+         * client-side on the `association_status` field.
          *
          * @example
          * ```ts
@@ -79863,8 +83973,16 @@ var BaseRecipients = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/shares/${shareID}/recipients`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Deletion is not immediate, an updated share recipient object with a new status
-         * will be returned.
+         * Performs a **soft delete**: sets the recipient's `desired_association_status` to
+         * `disassociated`, which signals the background reconciliation workflow (Temporal)
+         * to remove the shared resources from the recipient account. The recipient record
+         * remains in the database for audit purposes and is still returned by
+         * `GET /accounts/{account_id}/shares/{share_id}/recipients` with its updated
+         * status.
+         *
+         * Resource access is not fully removed until the workflow completes and
+         * `current_association_status` transitions to `disassociated`. The recipient
+         * record itself is never physically deleted.
          *
          * @example
          * ```ts
@@ -79966,7 +84084,18 @@ var BaseResourceSharing = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/shares`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updating is not immediate, an updated share object with a new status will be
+         * Updates the share's display name and tags. This endpoint does **not** modify
+         * recipients or resources — those are managed via dedicated subresource endpoints:
+         *
+         * - **Recipients**: Use `POST /accounts/{account_id}/shares/{share_id}/recipients`
+         *   to add a single recipient,
+         *   `PUT /accounts/{account_id}/shares/{share_id}/recipients` to replace the full
+         *   recipient list, or
+         *   `DELETE /accounts/{account_id}/shares/{share_id}/recipients/{recipient_id}` to
+         *   remove a recipient.
+         * - **Resources**: Use the share's resource subresource endpoints.
+         *
+         * Updating is not immediate; an updated share object with a new status will be
          * returned.
          *
          * @example
@@ -80371,8 +84500,17 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Summary = exports.BaseSummary = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
 var BaseSummary = /* @__PURE__ */ (() => {
     class BaseSummary extends resource_1.APIResource {
+        /**
+         * Lists all distinct tag keys and their distinct values across resources in an
+         * account.
+         */
+        get(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/tags/summary`, { query, ...options })._thenUnwrap((obj) => obj.result);
+        }
     }
     BaseSummary._key = Object.freeze([
         'resourceTagging',
@@ -80875,7 +85013,7 @@ var BasePhases = /* @__PURE__ */ (() => {
          * ```
          */
         update(rulesetPhase, params, options) {
-            const { account_id, zone_id, ...body } = params;
+            const { account_id, zone_id, dry_run, ...body } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -80891,7 +85029,7 @@ var BasePhases = /* @__PURE__ */ (() => {
                     accountOrZone: 'zones',
                     accountOrZoneId: zone_id,
                 };
-            return this._client.put((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/phases/${rulesetPhase}/entrypoint`, { body, ...options })._thenUnwrap((obj) => obj.result);
+            return this._client.put((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/phases/${rulesetPhase}/entrypoint`, { query: { dry_run }, body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
          * Fetches the latest version of the account or zone entry point ruleset for a
@@ -81070,7 +85208,7 @@ var BaseRules = /* @__PURE__ */ (() => {
          * ```
          */
         create(rulesetID, params, options) {
-            const { account_id, zone_id, ...body } = params;
+            const { account_id, zone_id, dry_run, ...body } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81087,6 +85225,7 @@ var BaseRules = /* @__PURE__ */ (() => {
                     accountOrZoneId: zone_id,
                 };
             return this._client.post((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${rulesetID}/rules`, {
+                query: { dry_run },
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -81106,7 +85245,7 @@ var BaseRules = /* @__PURE__ */ (() => {
          * ```
          */
         delete(ruleID, params, options) {
-            const { ruleset_id, account_id, zone_id } = params;
+            const { ruleset_id, account_id, zone_id, dry_run } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81122,7 +85261,10 @@ var BaseRules = /* @__PURE__ */ (() => {
                     accountOrZone: 'zones',
                     accountOrZoneId: zone_id,
                 };
-            return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${ruleset_id}/rules/${ruleID}`, options)._thenUnwrap((obj) => obj.result);
+            return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${ruleset_id}/rules/${ruleID}`, {
+                query: { dry_run },
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
         }
         /**
          * Updates an existing rule in an account or zone ruleset.
@@ -81139,7 +85281,7 @@ var BaseRules = /* @__PURE__ */ (() => {
          * ```
          */
         edit(ruleID, params, options) {
-            const { ruleset_id, account_id, zone_id, ...body } = params;
+            const { ruleset_id, account_id, zone_id, dry_run, ...body } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81156,6 +85298,7 @@ var BaseRules = /* @__PURE__ */ (() => {
                     accountOrZoneId: zone_id,
                 };
             return this._client.patch((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${ruleset_id}/rules/${ruleID}`, {
+                query: { dry_run },
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -81211,7 +85354,7 @@ var BaseRulesets = /* @__PURE__ */ (() => {
          * ```
          */
         create(params, options) {
-            const { account_id, zone_id, ...body } = params;
+            const { account_id, zone_id, dry_run, ...body } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81228,6 +85371,7 @@ var BaseRulesets = /* @__PURE__ */ (() => {
                     accountOrZoneId: zone_id,
                 };
             return this._client.post((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets`, {
+                query: { dry_run },
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -81244,7 +85388,7 @@ var BaseRulesets = /* @__PURE__ */ (() => {
          * ```
          */
         update(rulesetID, params, options) {
-            const { account_id, zone_id, ...body } = params;
+            const { account_id, zone_id, dry_run, ...body } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81261,6 +85405,7 @@ var BaseRulesets = /* @__PURE__ */ (() => {
                     accountOrZoneId: zone_id,
                 };
             return this._client.put((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${rulesetID}`, {
+                query: { dry_run },
                 body,
                 ...options,
             })._thenUnwrap((obj) => obj.result);
@@ -81309,7 +85454,7 @@ var BaseRulesets = /* @__PURE__ */ (() => {
          * ```
          */
         delete(rulesetID, params = {}, options) {
-            const { account_id, zone_id } = params ?? {};
+            const { account_id, zone_id, dry_run } = params ?? {};
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81326,6 +85471,7 @@ var BaseRulesets = /* @__PURE__ */ (() => {
                     accountOrZoneId: zone_id,
                 };
             return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${rulesetID}`, {
+                query: { dry_run },
                 ...options,
                 headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]),
             });
@@ -81447,7 +85593,7 @@ var BaseVersions = /* @__PURE__ */ (() => {
          * ```
          */
         delete(rulesetVersion, params, options) {
-            const { ruleset_id, account_id, zone_id } = params;
+            const { ruleset_id, account_id, zone_id, dry_run } = params;
             if (!account_id && !zone_id) {
                 throw new error_1.CloudflareError('You must provide either account_id or zone_id.');
             }
@@ -81463,7 +85609,7 @@ var BaseVersions = /* @__PURE__ */ (() => {
                     accountOrZone: 'zones',
                     accountOrZoneId: zone_id,
                 };
-            return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${ruleset_id}/versions/${rulesetVersion}`, { ...options, headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]) });
+            return this._client.delete((0, path_1.path) `/${accountOrZone}/${accountOrZoneId}/rulesets/${ruleset_id}/versions/${rulesetVersion}`, { query: { dry_run }, ...options, headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]) });
         }
         /**
          * Fetches a specific version of an account or zone ruleset.
@@ -82246,7 +86392,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSecrets = /* @__PURE__ */ (() => {
     class BaseSecrets extends resource_1.APIResource {
         /**
-         * Creates a secret in the account
+         * Creates a secret in the account.
          *
          * @example
          * ```ts
@@ -82258,7 +86404,13 @@ var BaseSecrets = /* @__PURE__ */ (() => {
          *     body: [
          *       {
          *         name: 'MY_API_KEY',
-         *         scopes: ['workers', 'ai_gateway', 'dex', 'access'],
+         *         scopes: [
+         *           'workers',
+         *           'ai_gateway',
+         *           'dex',
+         *           'access',
+         *           'websearch',
+         *         ],
          *         value: 'api-token-secret-123',
          *       },
          *     ],
@@ -82273,7 +86425,7 @@ var BaseSecrets = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/secrets_store/stores/${storeID}/secrets`, (pagination_1.SinglePage), { body: body, method: 'post', ...options });
         }
         /**
-         * Lists all store secrets
+         * Lists all store secrets.
          *
          * @example
          * ```ts
@@ -82291,7 +86443,7 @@ var BaseSecrets = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/secrets_store/stores/${storeID}/secrets`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Deletes a single secret
+         * Deletes a single secret.
          *
          * @example
          * ```ts
@@ -82310,7 +86462,7 @@ var BaseSecrets = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/secrets_store/stores/${store_id}/secrets/${secretID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Deletes one or more secrets
+         * Deletes one or more secrets.
          *
          * @example
          * ```ts
@@ -82326,7 +86478,7 @@ var BaseSecrets = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/secrets_store/stores/${storeID}/secrets`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Duplicates the secret, keeping the value
+         * Creates a duplicate of the secret, keeping the value.
          *
          * @example
          * ```ts
@@ -82337,7 +86489,13 @@ var BaseSecrets = /* @__PURE__ */ (() => {
          *       account_id: '985e105f4ecef8ad9ca31a8372d0c353',
          *       store_id: '023e105f4ecef8ad9ca31a8372d0c353',
          *       name: 'MY_API_KEY',
-         *       scopes: ['workers', 'ai_gateway', 'dex', 'access'],
+         *       scopes: [
+         *         'workers',
+         *         'ai_gateway',
+         *         'dex',
+         *         'access',
+         *         'websearch',
+         *       ],
          *     },
          *   );
          * ```
@@ -82347,7 +86505,7 @@ var BaseSecrets = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/secrets_store/stores/${store_id}/secrets/${secretID}/duplicate`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates a single secret
+         * Updates a single secret.
          *
          * @example
          * ```ts
@@ -82369,7 +86527,7 @@ var BaseSecrets = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Returns details of a single secret
+         * Returns details of a single secret.
          *
          * @example
          * ```ts
@@ -82419,7 +86577,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseStores = /* @__PURE__ */ (() => {
     class BaseStores extends resource_1.APIResource {
         /**
-         * Creates a store in the account
+         * Creates a store in the account.
          *
          * @example
          * ```ts
@@ -82437,7 +86595,7 @@ var BaseStores = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Lists all the stores in an account
+         * Lists all the stores in an account.
          *
          * @example
          * ```ts
@@ -82475,7 +86633,7 @@ var BaseStores = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Returns details of a single store
+         * Returns details of a single store.
          *
          * @example
          * ```ts
@@ -86243,12 +90401,11 @@ var BaseConfiguration = /* @__PURE__ */ (() => {
          *     credentials: {
          *       keys: [
          *         {
-         *           alg: 'ES256',
-         *           crv: 'P-256',
-         *           kid: '38013f13-c266-4eec-a72a-92ec92779f21',
-         *           kty: 'EC',
-         *           x: 'KN53JRwN3wCjm2o39bvZUX2VdrsHzS8pxOAGjm8m7EQ',
-         *           y: 'lnkkzIxaveggz-HFhcMWW15nxvOj0Z_uQsXbpK0GFcY',
+         *           alg: 'RS256',
+         *           e: 'e',
+         *           kid: 'kid',
+         *           kty: 'RSA',
+         *           n: 'n',
          *         },
          *       ],
          *     },
@@ -86372,7 +90529,9 @@ const path_1 = __nccwpck_require__(91121);
 var BaseCredentials = /* @__PURE__ */ (() => {
     class BaseCredentials extends resource_1.APIResource {
         /**
-         * Update Token Configuration credentials
+         * Update Token Configuration credentials with full replacement semantics. Key
+         * identities (`{alg,kid}`) must be unique within the request. Symmetric keys
+         * (`kty: "oct"`) require `k`; `k: null` is invalid.
          *
          * @example
          * ```ts
@@ -86383,12 +90542,11 @@ var BaseCredentials = /* @__PURE__ */ (() => {
          *       zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
          *       keys: [
          *         {
-         *           alg: 'ES256',
-         *           crv: 'P-256',
-         *           kid: '38013f13-c266-4eec-a72a-92ec92779f21',
-         *           kty: 'EC',
-         *           x: 'KN53JRwN3wCjm2o39bvZUX2VdrsHzS8pxOAGjm8m7EQ',
-         *           y: 'lnkkzIxaveggz-HFhcMWW15nxvOj0Z_uQsXbpK0GFcY',
+         *           alg: 'RS256',
+         *           e: 'e',
+         *           kid: 'kid',
+         *           kty: 'RSA',
+         *           n: 'n',
          *         },
          *       ],
          *     },
@@ -87653,7 +91811,8 @@ var BaseTokens = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/user/tokens/${tokenID}`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List all access tokens you created.
+         * List all access tokens you created. Results include active, disabled, and
+         * recently-expired tokens when include_expired is set to true.
          *
          * @example
          * ```ts
@@ -89251,8 +93410,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSettings = /* @__PURE__ */ (() => {
     class BaseSettings extends resource_1.APIResource {
         /**
-         * Fully updates zone-level Waiting Room settings, replacing the existing
-         * configuration.
+         * Replace zone-level Waiting Room settings.
          *
          * @example
          * ```ts
@@ -89266,7 +93424,7 @@ var BaseSettings = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/zones/${zone_id}/waiting_rooms/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Partially updates zone-level Waiting Room settings using PATCH semantics.
+         * Patch zone-level Waiting Room settings.
          *
          * @example
          * ```ts
@@ -89280,8 +93438,7 @@ var BaseSettings = /* @__PURE__ */ (() => {
             return this._client.patch((0, path_1.path) `/zones/${zone_id}/waiting_rooms/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Gets the zone-level Waiting Room settings that apply as defaults to all waiting
-         * rooms on the zone.
+         * Get zone-level Waiting Room settings.
          *
          * @example
          * ```ts
@@ -93917,7 +98074,7 @@ var BasePortals = /* @__PURE__ */ (() => {
          *     {
          *       account_id: 'a86a8f5c339544d7bdc89926de14fb8c',
          *       id: 'my-mcp-portal',
-         *       hostname: 'exmaple.com',
+         *       hostname: 'example.com',
          *       name: 'My MCP Portal',
          *     },
          *   );
@@ -93983,7 +98140,7 @@ var BasePortals = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/access/ai-controls/mcp/portals/${id}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Read details of an MCP Portal
+         * Read the details of a single MCP Portal, including its configured servers.
          *
          * @example
          * ```ts
@@ -94024,7 +98181,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseServers = /* @__PURE__ */ (() => {
     class BaseServers extends resource_1.APIResource {
         /**
-         * Creates a new MCP portal for managing AI tool access through Cloudflare Access.
+         * Creates a new MCP server for connecting to an upstream MCP endpoint.
          *
          * @example
          * ```ts
@@ -94048,7 +98205,7 @@ var BaseServers = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Updates an MCP portal configuration.
+         * Updates an MCP server's configuration and credentials.
          *
          * @example
          * ```ts
@@ -94067,7 +98224,7 @@ var BaseServers = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Lists all MCP portals configured for the account.
+         * Lists all MCP servers configured for the account.
          *
          * @example
          * ```ts
@@ -94084,7 +98241,7 @@ var BaseServers = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/access/ai-controls/mcp/servers`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Deletes an MCP portal from the account.
+         * Deletes an MCP server from the account.
          *
          * @example
          * ```ts
@@ -94100,7 +98257,7 @@ var BaseServers = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/access/ai-controls/mcp/servers/${id}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieves gateway configuration for MCP portals.
+         * Retrieves an MCP server's configuration and capability sync state.
          *
          * @example
          * ```ts
@@ -94123,7 +98280,7 @@ var BaseServers = /* @__PURE__ */ (() => {
          * ```ts
          * const response =
          *   await client.zeroTrust.access.aiControls.mcp.servers.sync(
-         *     'my-mcp-portal',
+         *     'my-mcp-server',
          *     { account_id: 'a86a8f5c339544d7bdc89926de14fb8c' },
          *   );
          * ```
@@ -94623,6 +98780,9 @@ var BasePolicies = /* @__PURE__ */ (() => {
          *     {
          *       app_id: 'f174e90a-fafe-4643-bbbc-4a0ed4fc8415',
          *       account_id: 'account_id',
+         *       mfa_config: {
+         *         allowed_authenticators: ['ssh_fido2_key'],
+         *       },
          *     },
          *   );
          * ```
@@ -95961,7 +100121,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseTargets = /* @__PURE__ */ (() => {
     class BaseTargets extends resource_1.APIResource {
         /**
-         * Create new target
+         * Creates a new infrastructure access target in the account.
          *
          * @example
          * ```ts
@@ -95983,7 +100143,7 @@ var BaseTargets = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update target
+         * Updates an existing infrastructure access target by its ID.
          *
          * @example
          * ```ts
@@ -96006,7 +100166,7 @@ var BaseTargets = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Lists and sorts an account’s targets. Filters are optional and are ANDed
+         * Lists and sorts an account's targets. Filters are optional and are ANDed
          * together.
          *
          * @example
@@ -96024,7 +100184,7 @@ var BaseTargets = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/infrastructure/targets`, (pagination_1.V4PagePaginationArray), { query, ...options });
         }
         /**
-         * Delete target
+         * Removes a single infrastructure access target by its ID.
          *
          * @example
          * ```ts
@@ -96100,7 +100260,7 @@ var BaseTargets = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/infrastructure/targets/batch`, (pagination_1.SinglePage), { body: body, method: 'put', ...options });
         }
         /**
-         * Get target
+         * Fetches a single infrastructure access target by its ID.
          *
          * @example
          * ```ts
@@ -97264,10 +101424,46 @@ exports.Applications = exports.BaseApplications = void 0;
 const tslib_1 = __nccwpck_require__(67590);
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
-const SetupFlowsAPI = tslib_1.__importStar(__nccwpck_require__(86231));
-const setup_flows_1 = __nccwpck_require__(86231);
+const AuthMethodsAPI = tslib_1.__importStar(__nccwpck_require__(75797));
+const auth_methods_1 = __nccwpck_require__(75797);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
 var BaseApplications = /* @__PURE__ */ (() => {
     class BaseApplications extends resource_1.APIResource {
+        /**
+         * Returns a list of available applications with use cases and permissions.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const applicationListResponse of client.zeroTrust.casb.applications.list(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/one/applications`, (pagination_1.SinglePage), { query, ...options });
+        }
+        /**
+         * Returns full application details including auth methods, use cases, and
+         * permissions.
+         *
+         * @example
+         * ```ts
+         * const application =
+         *   await client.zeroTrust.casb.applications.get(
+         *     'ANTHROPIC',
+         *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         *   );
+         * ```
+         */
+        get(applicationID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/one/applications/${applicationID}`, options)._thenUnwrap((obj) => obj.result);
+        }
     }
     BaseApplications._key = Object.freeze([
         'zeroTrust',
@@ -97281,11 +101477,11 @@ var Applications = /* @__PURE__ */ (() => {
     class Applications extends BaseApplications {
         constructor() {
             super(...arguments);
-            this.setupFlows = new SetupFlowsAPI.SetupFlows(this._client);
+            this.authMethods = new AuthMethodsAPI.AuthMethods(this._client);
         }
     }
-    Applications.SetupFlows = setup_flows_1.SetupFlows;
-    Applications.BaseSetupFlows = setup_flows_1.BaseSetupFlows;
+    Applications.AuthMethods = auth_methods_1.AuthMethods;
+    Applications.BaseAuthMethods = auth_methods_1.BaseAuthMethods;
     return Applications;
 })();
 exports.Applications = Applications;
@@ -97293,26 +101489,48 @@ exports.Applications = Applications;
 
 /***/ }),
 
-/***/ 86231:
+/***/ 75797:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.SetupFlows = exports.BaseSetupFlows = void 0;
+exports.AuthMethods = exports.BaseAuthMethods = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
-var BaseSetupFlows = /* @__PURE__ */ (() => {
-    class BaseSetupFlows extends resource_1.APIResource {
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseAuthMethods = /* @__PURE__ */ (() => {
+    class BaseAuthMethods extends resource_1.APIResource {
+        /**
+         * Returns available auth methods for the specified vendor, including credential
+         * schema, instructions, and example payloads. Use this to understand what
+         * credentials are required before calling POST /v2/integrations.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const authMethodListResponse of client.zeroTrust.casb.applications.authMethods.list(
+         *   'ANTHROPIC',
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(applicationID, params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/one/applications/${applicationID}/auth-methods`, (pagination_1.SinglePage), { query, ...options });
+        }
     }
-    BaseSetupFlows._key = Object.freeze(['zeroTrust', 'casb', 'applications', 'setupFlows']);
-    return BaseSetupFlows;
+    BaseAuthMethods._key = Object.freeze(['zeroTrust', 'casb', 'applications', 'authMethods']);
+    return BaseAuthMethods;
 })();
-exports.BaseSetupFlows = BaseSetupFlows;
-class SetupFlows extends BaseSetupFlows {
+exports.BaseAuthMethods = BaseAuthMethods;
+class AuthMethods extends BaseAuthMethods {
 }
-exports.SetupFlows = SetupFlows;
-//# sourceMappingURL=setup-flows.js.map
+exports.AuthMethods = AuthMethods;
+//# sourceMappingURL=auth-methods.js.map
 
 /***/ }),
 
@@ -97330,6 +101548,8 @@ const IntegrationsAPI = tslib_1.__importStar(__nccwpck_require__(52733));
 const integrations_1 = __nccwpck_require__(52733);
 const ApplicationsAPI = tslib_1.__importStar(__nccwpck_require__(60451));
 const applications_1 = __nccwpck_require__(60451);
+const PostureAPI = tslib_1.__importStar(__nccwpck_require__(59883));
+const posture_1 = __nccwpck_require__(59883);
 var BaseCasb = /* @__PURE__ */ (() => {
     class BaseCasb extends resource_1.APIResource {
     }
@@ -97346,12 +101566,15 @@ var Casb = /* @__PURE__ */ (() => {
             super(...arguments);
             this.applications = new ApplicationsAPI.Applications(this._client);
             this.integrations = new IntegrationsAPI.Integrations(this._client);
+            this.posture = new PostureAPI.Posture(this._client);
         }
     }
     Casb.Applications = applications_1.Applications;
     Casb.BaseApplications = applications_1.BaseApplications;
     Casb.Integrations = integrations_1.Integrations;
     Casb.BaseIntegrations = integrations_1.BaseIntegrations;
+    Casb.Posture = posture_1.Posture;
+    Casb.BasePosture = posture_1.BasePosture;
     return Casb;
 })();
 exports.Casb = Casb;
@@ -97368,8 +101591,140 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Integrations = exports.BaseIntegrations = void 0;
 // File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const headers_1 = __nccwpck_require__(24644);
+const path_1 = __nccwpck_require__(91121);
 var BaseIntegrations = /* @__PURE__ */ (() => {
     class BaseIntegrations extends resource_1.APIResource {
+        /**
+         * Creates a new integration for the specified application. Integration creation
+         * with OAuth is not supported by API at the moment. For other auth methods, use
+         * `GET /v2/applications/{application_id}/credential-guide` to see the required
+         * credential structure and example payloads for each vendor.
+         *
+         * @example
+         * ```ts
+         * const integration =
+         *   await client.zeroTrust.casb.integrations.create({
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     application: 'GOOGLE_WORKSPACE',
+         *     credentials: { admin_email: 'admin@corp.com' },
+         *     name: 'My Google Workspace',
+         *     auth_method: 'service_account',
+         *     dlp_profiles: ['e91a2360-da51-4fdf-9711-bcdecd462614'],
+         *     permissions: [
+         *       'https://www.googleapis.com/auth/drive.readonly',
+         *     ],
+         *     use_cases: ['casb', 'ces'],
+         *   });
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/one/integrations`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Updates an integration's name, permissions, DLP profiles, use cases, or
+         * credentials.
+         *
+         * @example
+         * ```ts
+         * const integration =
+         *   await client.zeroTrust.casb.integrations.update('id', {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     credentials: {
+         *       access_token: 'new_access_token',
+         *       refresh_token: 'new_refresh_token',
+         *     },
+         *   });
+         * ```
+         */
+        update(id, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/accounts/${account_id}/one/integrations/${id}`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns a paginated list of integrations for the account.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const integrationListResponse of client.zeroTrust.casb.integrations.list(
+         *   { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/one/integrations`, (pagination_1.SinglePage), { query, ...options });
+        }
+        /**
+         * Delete an integration by soft-deleting it.
+         *
+         * @example
+         * ```ts
+         * await client.zeroTrust.casb.integrations.delete('id', {
+         *   account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         * });
+         * ```
+         */
+        delete(id, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/one/integrations/${id}`, {
+                ...options,
+                headers: (0, headers_1.buildHeaders)([{ Accept: '*/*' }, options?.headers]),
+            });
+        }
+        /**
+         * Returns full integration details including use cases and permissions.
+         *
+         * @example
+         * ```ts
+         * const integration =
+         *   await client.zeroTrust.casb.integrations.get('id', {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
+         * ```
+         */
+        get(id, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/one/integrations/${id}`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Pauses an integration, stopping all crawlers.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.integrations.pause('id', {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
+         * ```
+         */
+        pause(id, params, options) {
+            const { account_id } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/one/integrations/${id}/pause`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Resumes a paused integration, restarting crawlers.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.integrations.resume('id', {
+         *     account_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
+         * ```
+         */
+        resume(id, params, options) {
+            const { account_id } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/one/integrations/${id}/resume`, options)._thenUnwrap((obj) => obj.result);
+        }
     }
     BaseIntegrations._key = Object.freeze([
         'zeroTrust',
@@ -97383,6 +101738,1004 @@ class Integrations extends BaseIntegrations {
 }
 exports.Integrations = Integrations;
 //# sourceMappingURL=integrations.js.map
+
+/***/ }),
+
+/***/ 11178:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Content = exports.BaseContent = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseContent = /* @__PURE__ */ (() => {
+    class BaseContent extends resource_1.APIResource {
+        /**
+         * List DLP content findings
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const contentListResponse of client.zeroTrust.casb.posture.content.list(
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/content`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+        /**
+         * Creates a CSV export for content and accepts optional filters in the payload.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.content.export({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *     dlp_profile_information: [
+         *       {
+         *         id: 'e91a2360-da51-4fdf-9711-bcdecd462614',
+         *         entries: [
+         *           {
+         *             id: '55ba2c6c-8ef4-4b2e-9148-e75e8b6ccac1',
+         *             name: 'Credit Card Numbers',
+         *             profile_id:
+         *               'e91a2360-da51-4fdf-9711-bcdecd462614',
+         *           },
+         *         ],
+         *         name: 'Financial Information',
+         *       },
+         *     ],
+         *   });
+         * ```
+         */
+        export(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/content/export`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseContent._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+        'content',
+    ]);
+    return BaseContent;
+})();
+exports.BaseContent = BaseContent;
+class Content extends BaseContent {
+}
+exports.Content = Content;
+//# sourceMappingURL=content.js.map
+
+/***/ }),
+
+/***/ 30848:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Exports = exports.BaseExports = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseExports = /* @__PURE__ */ (() => {
+    class BaseExports extends resource_1.APIResource {
+        /**
+         * List all export jobs for a given requestor's organization
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const exportListResponse of client.zeroTrust.casb.posture.exports.list(
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/exports`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+        /**
+         * Retrieves a single export job by its unique identifier
+         *
+         * @example
+         * ```ts
+         * const _export =
+         *   await client.zeroTrust.casb.posture.exports.get('id', {
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *   });
+         * ```
+         */
+        get(id, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/data-security/posture/exports/${id}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseExports._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+        'exports',
+    ]);
+    return BaseExports;
+})();
+exports.BaseExports = BaseExports;
+class Exports extends BaseExports {
+}
+exports.Exports = Exports;
+//# sourceMappingURL=exports.js.map
+
+/***/ }),
+
+/***/ 6964:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.FindingTypes = exports.BaseFindingTypes = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const RemediationTypesAPI = tslib_1.__importStar(__nccwpck_require__(60276));
+const remediation_types_1 = __nccwpck_require__(60276);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseFindingTypes = /* @__PURE__ */ (() => {
+    class BaseFindingTypes extends resource_1.APIResource {
+        /**
+         * List all available finding types with pagination support.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const findingTypeListResponse of client.zeroTrust.casb.posture.findingTypes.list(
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/finding_types`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+        /**
+         * Retrieve a specific finding type by its unique identifier.
+         *
+         * @example
+         * ```ts
+         * const findingType =
+         *   await client.zeroTrust.casb.posture.findingTypes.get(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        get(findingTypeID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/data-security/posture/finding_types/${findingTypeID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseFindingTypes._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+        'findingTypes',
+    ]);
+    return BaseFindingTypes;
+})();
+exports.BaseFindingTypes = BaseFindingTypes;
+var FindingTypes = /* @__PURE__ */ (() => {
+    class FindingTypes extends BaseFindingTypes {
+        constructor() {
+            super(...arguments);
+            this.remediationTypes = new RemediationTypesAPI.RemediationTypes(this._client);
+        }
+    }
+    FindingTypes.RemediationTypes = remediation_types_1.RemediationTypes;
+    FindingTypes.BaseRemediationTypes = remediation_types_1.BaseRemediationTypes;
+    return FindingTypes;
+})();
+exports.FindingTypes = FindingTypes;
+//# sourceMappingURL=finding-types.js.map
+
+/***/ }),
+
+/***/ 60276:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RemediationTypes = exports.BaseRemediationTypes = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseRemediationTypes = /* @__PURE__ */ (() => {
+    class BaseRemediationTypes extends resource_1.APIResource {
+        /**
+         * List all remediation types for a given finding type. This endpoint supports both
+         * cursor and offset pagination. Note that `cursor` and `page` are mutually
+         * exclusive.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const remediationTypeListResponse of client.zeroTrust.casb.posture.findingTypes.remediationTypes.list(
+         *   '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(findingTypeID, params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/finding_types/${findingTypeID}/remediation_types`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+    }
+    BaseRemediationTypes._key = Object.freeze(['zeroTrust', 'casb', 'posture', 'findingTypes', 'remediationTypes']);
+    return BaseRemediationTypes;
+})();
+exports.BaseRemediationTypes = BaseRemediationTypes;
+class RemediationTypes extends BaseRemediationTypes {
+}
+exports.RemediationTypes = RemediationTypes;
+//# sourceMappingURL=remediation-types.js.map
+
+/***/ }),
+
+/***/ 43850:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Findings = exports.BaseFindings = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const InstancesAPI = tslib_1.__importStar(__nccwpck_require__(41250));
+const instances_1 = __nccwpck_require__(41250);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseFindings = /* @__PURE__ */ (() => {
+    class BaseFindings extends resource_1.APIResource {
+        /**
+         * List all security findings that have been identified as being problematic. This
+         * will return a list of findings regardless if they have been ignored or not.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const findingListResponse of client.zeroTrust.casb.posture.findings.list(
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+        /**
+         * Creates a CSV export for findings and accepts optional filters in the payload.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.export({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *   });
+         * ```
+         */
+        export(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/export`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Gets a security Finding that has been identified as being problematic.
+         *
+         * @example
+         * ```ts
+         * const finding =
+         *   await client.zeroTrust.casb.posture.findings.get(
+         *     'U3RhaW5sZXNzIHJvY2tz',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        get(findingID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${findingID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Given a list of findings, mark as ignored. Does nothing if Finding is already
+         * ignored.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.ignore({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *     checks: [
+         *       'MDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxOjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMgo=',
+         *     ],
+         *   });
+         * ```
+         */
+        ignore(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/ignore`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * If a Finding's severity has been changed, reset it back to default value. Does
+         * nothing if no override exists.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.resetSeverity(
+         *     'U3RhaW5sZXNzIHJvY2tz',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        resetSeverity(findingID, params, options) {
+            const { account_id } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${findingID}/reset_finding_severity`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Update the severity of a Finding. This will update the `severity_override` field
+         * on the Finding payload with the new severity value.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.tuneSeverity(
+         *     'U3RhaW5sZXNzIHJvY2tz',
+         *     {
+         *       account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *       new_severity: 1,
+         *     },
+         *   );
+         * ```
+         */
+        tuneSeverity(findingID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${findingID}/tune_finding_severity`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Ability to un-ignore a Finding if it's previously been ignored. Does nothing if
+         * the Finding is not ignored.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.unignore({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *     checks: [
+         *       'MDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxOjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMgo=',
+         *     ],
+         *   });
+         * ```
+         */
+        unignore(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/unignore`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseFindings._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+        'findings',
+    ]);
+    return BaseFindings;
+})();
+exports.BaseFindings = BaseFindings;
+var Findings = /* @__PURE__ */ (() => {
+    class Findings extends BaseFindings {
+        constructor() {
+            super(...arguments);
+            this.instances = new InstancesAPI.Instances(this._client);
+        }
+    }
+    Findings.Instances = instances_1.Instances;
+    Findings.BaseInstances = instances_1.BaseInstances;
+    return Findings;
+})();
+exports.Findings = Findings;
+//# sourceMappingURL=findings.js.map
+
+/***/ }),
+
+/***/ 41250:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Instances = exports.BaseInstances = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseInstances = /* @__PURE__ */ (() => {
+    class BaseInstances extends resource_1.APIResource {
+        /**
+         * Lists all security finding instances for a given security finding.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const instanceListResponse of client.zeroTrust.casb.posture.findings.instances.list(
+         *   'U3RhaW5sZXNzIHJvY2tz',
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(findingID, params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${findingID}/instances`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+        /**
+         * Archive one or more finding instances.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.instances.archive(
+         *     'U3RhaW5sZXNzIHJvY2tz',
+         *     {
+         *       account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *       check_instances: [
+         *         '497f6eca-6276-4993-bfeb-53cbbbba6f08',
+         *       ],
+         *     },
+         *   );
+         * ```
+         */
+        archive(findingID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${findingID}/instances/archive`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Creates a CSV export for Finding instances and accepts optional filters in the
+         * payload.
+         *
+         * The `storage_namespace_id` path parameter is derived from the finding ID by
+         * base64-decoding it (which yields `integration_id:finding_type_id`) and replacing
+         * the colon with a hyphen.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.instances.export(
+         *     '00000000-0000-0000-0000-000000000001-00000000-0000-0000-0000-000000000002',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        export(storageNamespaceID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${storageNamespaceID}/instances/export`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Gets a security Finding instance by id.
+         *
+         * @example
+         * ```ts
+         * const instance =
+         *   await client.zeroTrust.casb.posture.findings.instances.get(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     {
+         *       account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *       finding_id: 'U3RhaW5sZXNzIHJvY2tz',
+         *     },
+         *   );
+         * ```
+         */
+        get(instanceID, params, options) {
+            const { account_id, finding_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${finding_id}/instances/${instanceID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Remove the archive marking from one or more finding instances.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.findings.instances.unarchive(
+         *     'U3RhaW5sZXNzIHJvY2tz',
+         *     {
+         *       account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *       check_instances: [
+         *         '497f6eca-6276-4993-bfeb-53cbbbba6f08',
+         *       ],
+         *     },
+         *   );
+         * ```
+         */
+        unarchive(findingID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/findings/${findingID}/instances/unarchive`, { body, ...options })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseInstances._key = Object.freeze(['zeroTrust', 'casb', 'posture', 'findings', 'instances']);
+    return BaseInstances;
+})();
+exports.BaseInstances = BaseInstances;
+class Instances extends BaseInstances {
+}
+exports.Instances = Instances;
+//# sourceMappingURL=instances.js.map
+
+/***/ }),
+
+/***/ 59883:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Posture = exports.BasePosture = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const ContentAPI = tslib_1.__importStar(__nccwpck_require__(11178));
+const content_1 = __nccwpck_require__(11178);
+const ExportsAPI = tslib_1.__importStar(__nccwpck_require__(30848));
+const exports_1 = __nccwpck_require__(30848);
+const FindingTypesAPI = tslib_1.__importStar(__nccwpck_require__(6964));
+const finding_types_1 = __nccwpck_require__(6964);
+const FindingsAPI = tslib_1.__importStar(__nccwpck_require__(43850));
+const findings_1 = __nccwpck_require__(43850);
+const RemediationsAPI = tslib_1.__importStar(__nccwpck_require__(35778));
+const remediations_1 = __nccwpck_require__(35778);
+const WebhooksAPI = tslib_1.__importStar(__nccwpck_require__(44066));
+const webhooks_1 = __nccwpck_require__(44066);
+var BasePosture = /* @__PURE__ */ (() => {
+    class BasePosture extends resource_1.APIResource {
+    }
+    BasePosture._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+    ]);
+    return BasePosture;
+})();
+exports.BasePosture = BasePosture;
+var Posture = /* @__PURE__ */ (() => {
+    class Posture extends BasePosture {
+        constructor() {
+            super(...arguments);
+            this.findings = new FindingsAPI.Findings(this._client);
+            this.exports = new ExportsAPI.Exports(this._client);
+            this.findingTypes = new FindingTypesAPI.FindingTypes(this._client);
+            this.content = new ContentAPI.Content(this._client);
+            this.remediations = new RemediationsAPI.Remediations(this._client);
+            this.webhooks = new WebhooksAPI.Webhooks(this._client);
+        }
+    }
+    Posture.Findings = findings_1.Findings;
+    Posture.BaseFindings = findings_1.BaseFindings;
+    Posture.Exports = exports_1.Exports;
+    Posture.BaseExports = exports_1.BaseExports;
+    Posture.FindingTypes = finding_types_1.FindingTypes;
+    Posture.BaseFindingTypes = finding_types_1.BaseFindingTypes;
+    Posture.Content = content_1.Content;
+    Posture.BaseContent = content_1.BaseContent;
+    Posture.Remediations = remediations_1.Remediations;
+    Posture.BaseRemediations = remediations_1.BaseRemediations;
+    Posture.Webhooks = webhooks_1.Webhooks;
+    Posture.BaseWebhooks = webhooks_1.BaseWebhooks;
+    return Posture;
+})();
+exports.Posture = Posture;
+//# sourceMappingURL=posture.js.map
+
+/***/ }),
+
+/***/ 43252:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Jobs = exports.BaseJobs = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseJobs = /* @__PURE__ */ (() => {
+    class BaseJobs extends resource_1.APIResource {
+        /**
+         * Create one or more remediation jobs tied to a specific Cloudflare Account.
+         *
+         * @example
+         * ```ts
+         * const job =
+         *   await client.zeroTrust.casb.posture.remediations.jobs.create(
+         *     {
+         *       account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *       finding_instance_ids: [
+         *         '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *       ],
+         *       remediation_type_id:
+         *         '5a7d9e2f-1b3c-4d5e-8f6a-7b8c9d0e1f2a',
+         *     },
+         *   );
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/remediations/jobs`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * List all remediation jobs tied to a specific Cloudflare Account. Note that
+         * `cursor` and `page` are mutually exclusive.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const jobListResponse of client.zeroTrust.casb.posture.remediations.jobs.list(
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id, ...query } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/remediations/jobs`, (pagination_1.V4PagePaginationArray), { query, ...options });
+        }
+        /**
+         * Creates a CSV export for remediation jobs and accepts optional filters in the
+         * payload.
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.remediations.jobs.export(
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        export(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/remediations/jobs/export`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseJobs._key = Object.freeze(['zeroTrust', 'casb', 'posture', 'remediations', 'jobs']);
+    return BaseJobs;
+})();
+exports.BaseJobs = BaseJobs;
+class Jobs extends BaseJobs {
+}
+exports.Jobs = Jobs;
+//# sourceMappingURL=jobs.js.map
+
+/***/ }),
+
+/***/ 35778:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Remediations = exports.BaseRemediations = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const JobsAPI = tslib_1.__importStar(__nccwpck_require__(43252));
+const jobs_1 = __nccwpck_require__(43252);
+var BaseRemediations = /* @__PURE__ */ (() => {
+    class BaseRemediations extends resource_1.APIResource {
+    }
+    BaseRemediations._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+        'remediations',
+    ]);
+    return BaseRemediations;
+})();
+exports.BaseRemediations = BaseRemediations;
+var Remediations = /* @__PURE__ */ (() => {
+    class Remediations extends BaseRemediations {
+        constructor() {
+            super(...arguments);
+            this.jobs = new JobsAPI.Jobs(this._client);
+        }
+    }
+    Remediations.Jobs = jobs_1.Jobs;
+    Remediations.BaseJobs = jobs_1.BaseJobs;
+    return Remediations;
+})();
+exports.Remediations = Remediations;
+//# sourceMappingURL=remediations.js.map
+
+/***/ }),
+
+/***/ 26364:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Jobs = exports.BaseJobs = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseJobs = /* @__PURE__ */ (() => {
+    class BaseJobs extends resource_1.APIResource {
+        /**
+         * Creates webhook jobs to send a finding instance to one or more configured
+         * webhooks.
+         *
+         * @example
+         * ```ts
+         * const job =
+         *   await client.zeroTrust.casb.posture.webhooks.jobs.create({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *     finding_instance_ids: [
+         *       '770e8400-e29b-41d4-a716-446655440002',
+         *       '660e8400-e29b-41d4-a716-446655440001',
+         *     ],
+         *     webhook_ids: [
+         *       '550e8400-e29b-41d4-a716-446655440000',
+         *       '660e8400-e29b-41d4-a716-446655440001',
+         *     ],
+         *   });
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks/jobs`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseJobs._key = Object.freeze(['zeroTrust', 'casb', 'posture', 'webhooks', 'jobs']);
+    return BaseJobs;
+})();
+exports.BaseJobs = BaseJobs;
+class Jobs extends BaseJobs {
+}
+exports.Jobs = Jobs;
+//# sourceMappingURL=jobs.js.map
+
+/***/ }),
+
+/***/ 44066:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Webhooks = exports.BaseWebhooks = void 0;
+const tslib_1 = __nccwpck_require__(67590);
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const JobsAPI = tslib_1.__importStar(__nccwpck_require__(26364));
+const jobs_1 = __nccwpck_require__(26364);
+const pagination_1 = __nccwpck_require__(86242);
+const path_1 = __nccwpck_require__(91121);
+var BaseWebhooks = /* @__PURE__ */ (() => {
+    class BaseWebhooks extends resource_1.APIResource {
+        /**
+         * Creates a new webhook configuration for sending finding notifications to
+         * external endpoints.
+         *
+         * @example
+         * ```ts
+         * const webhook =
+         *   await client.zeroTrust.casb.posture.webhooks.create({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *     authentication_type: 'Bearer Auth',
+         *     destination_url: 'https://example.com/webhook',
+         *     label: 'Send to Slack',
+         *   });
+         * ```
+         */
+        create(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Updates an existing webhook configuration with new settings.
+         *
+         * @example
+         * ```ts
+         * const webhook =
+         *   await client.zeroTrust.casb.posture.webhooks.update(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     {
+         *       account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *       authentication_type: 'Bearer Auth',
+         *       destination_url: 'https://example.com/webhook',
+         *       label: 'Send to Slack',
+         *       status: 'enabled',
+         *     },
+         *   );
+         * ```
+         */
+        update(webhookID, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.put((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks/${webhookID}`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Retrieves all webhook configurations for the authenticated account. Returns an
+         * array of webhook configurations that can be used to send finding notifications.
+         *
+         * @example
+         * ```ts
+         * // Automatically fetches more pages as needed.
+         * for await (const webhookListResponse of client.zeroTrust.casb.posture.webhooks.list(
+         *   { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         * )) {
+         *   // ...
+         * }
+         * ```
+         */
+        list(params, options) {
+            const { account_id } = params;
+            return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks`, (pagination_1.SinglePage), options);
+        }
+        /**
+         * Soft deletes a webhook configuration by its unique identifier. The webhook will
+         * be marked as deleted and will no longer be available for use.
+         *
+         * @example
+         * ```ts
+         * const webhook =
+         *   await client.zeroTrust.casb.posture.webhooks.delete(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        delete(webhookID, params, options) {
+            const { account_id } = params;
+            return this._client.delete((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks/${webhookID}`, options);
+        }
+        /**
+         * Sends a test webhook event to the specified destination URL to verify the
+         * webhook endpoint is reachable and properly configured. This allows customers to
+         * validate their webhook configuration before creating the actual webhook
+         * resource.
+         *
+         * The test payload includes:
+         *
+         * - event_type: "webhook.test"
+         * - timestamp: Current UTC timestamp
+         * - message: Test message indicating this is from Cloudflare CASB
+         * - data: Object with test: true
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.webhooks.evaluate({
+         *     account_id: '46148281d8a93d002ef242d8b0d5f9f6',
+         *     authentication_type: 'Bearer Auth',
+         *     destination_url: 'https://example.com/webhook',
+         *   });
+         * ```
+         */
+        evaluate(params, options) {
+            const { account_id, ...body } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks/evaluate`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Sends a test webhook event using an existing webhook configuration. This allows
+         * customers to verify their webhook endpoint is still reachable and properly
+         * configured after creating the webhook resource.
+         *
+         * The test payload includes:
+         *
+         * - event_type: "webhook.test"
+         * - timestamp: Current UTC timestamp
+         * - message: Test message indicating this is from Cloudflare CASB
+         * - data: Object with test: true
+         *
+         * @example
+         * ```ts
+         * const response =
+         *   await client.zeroTrust.casb.posture.webhooks.evaluateExisting(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        evaluateExisting(webhookID, params, options) {
+            const { account_id } = params;
+            return this._client.post((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks/${webhookID}/evaluate`, options)._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Retrieves a specific webhook configuration by its unique identifier.
+         *
+         * @example
+         * ```ts
+         * const webhook =
+         *   await client.zeroTrust.casb.posture.webhooks.get(
+         *     '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e',
+         *     { account_id: '46148281d8a93d002ef242d8b0d5f9f6' },
+         *   );
+         * ```
+         */
+        get(webhookID, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/data-security/posture/webhooks/${webhookID}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseWebhooks._key = Object.freeze([
+        'zeroTrust',
+        'casb',
+        'posture',
+        'webhooks',
+    ]);
+    return BaseWebhooks;
+})();
+exports.BaseWebhooks = BaseWebhooks;
+var Webhooks = /* @__PURE__ */ (() => {
+    class Webhooks extends BaseWebhooks {
+        constructor() {
+            super(...arguments);
+            this.jobs = new JobsAPI.Jobs(this._client);
+        }
+    }
+    Webhooks.Jobs = jobs_1.Jobs;
+    Webhooks.BaseJobs = jobs_1.BaseJobs;
+    return Webhooks;
+})();
+exports.Webhooks = Webhooks;
+//# sourceMappingURL=webhooks.js.map
 
 /***/ }),
 
@@ -97950,8 +103303,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseFleetStatus = /* @__PURE__ */ (() => {
     class BaseFleetStatus extends resource_1.APIResource {
         /**
-         * Get the live status of a latest device given device_id from the device_state
-         * table
+         * Get the latest status of a device given device_id from the device_state table.
          *
          * @example
          * ```ts
@@ -100161,7 +105513,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseDevices = /* @__PURE__ */ (() => {
     class BaseDevices extends resource_1.APIResource {
         /**
-         * List details for devices using WARP.
+         * List details of devices using WARP.
          *
          * @example
          * ```ts
@@ -100216,7 +105568,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseFleetStatus = /* @__PURE__ */ (() => {
     class BaseFleetStatus extends resource_1.APIResource {
         /**
-         * List details for live (up to 60 minutes) devices using WARP.
+         * Get details for live (up to 60 minutes) devices using WARP.
          *
          * @example
          * ```ts
@@ -100235,7 +105587,7 @@ var BaseFleetStatus = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List details for devices using WARP, up to 7 days.
+         * Get aggregate details for devices using WARP, up to 7 days.
          *
          * @example
          * ```ts
@@ -100871,7 +106223,7 @@ var BaseCustomPromptTopics = /* @__PURE__ */ (() => {
          *     account_id: 'account_id',
          *     enabled: true,
          *     name: 'name',
-         *     topic: 'topic',
+         *     topic: 'xx',
          *   });
          * ```
          */
@@ -100894,7 +106246,7 @@ var BaseCustomPromptTopics = /* @__PURE__ */ (() => {
          *       account_id: 'account_id',
          *       enabled: true,
          *       name: 'name',
-         *       topic: 'topic',
+         *       topic: 'xx',
          *     },
          *   );
          * ```
@@ -100985,7 +106337,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseDataClasses = /* @__PURE__ */ (() => {
     class BaseDataClasses extends resource_1.APIResource {
         /**
-         * Creates a new data class
+         * Creates a data class for use in DLP profiles.
          *
          * @example
          * ```ts
@@ -101009,7 +106361,7 @@ var BaseDataClasses = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/dlp/data_classes`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update the attributes of a single data class
+         * Updates the configuration for a data class.
          *
          * @example
          * ```ts
@@ -101028,7 +106380,7 @@ var BaseDataClasses = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve all data classes in an account
+         * Lists data classes configured for the account.
          *
          * @example
          * ```ts
@@ -101045,7 +106397,7 @@ var BaseDataClasses = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dlp/data_classes`, (pagination_1.SinglePage), options);
         }
         /**
-         * Delete a single data class
+         * Deletes a data class from the account.
          *
          * @example
          * ```ts
@@ -101061,7 +106413,7 @@ var BaseDataClasses = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/dlp/data_classes/${dataClassID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve a specific data class
+         * Gets the configuration for a data class.
          *
          * @example
          * ```ts
@@ -101109,7 +106461,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseDataTagCategories = /* @__PURE__ */ (() => {
     class BaseDataTagCategories extends resource_1.APIResource {
         /**
-         * Creates a new data tag category.
+         * Creates a data tag category, optionally from a template.
          *
          * @example
          * ```ts
@@ -101128,7 +106480,7 @@ var BaseDataTagCategories = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update the attributes of a single data tag category.
+         * Updates a data tag category and its tags.
          *
          * @example
          * ```ts
@@ -101147,7 +106499,7 @@ var BaseDataTagCategories = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve all data tag categories in an account
+         * Lists data tag categories configured for the account.
          *
          * @example
          * ```ts
@@ -101164,7 +106516,7 @@ var BaseDataTagCategories = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dlp/data_tag_categories`, (pagination_1.SinglePage), options);
         }
         /**
-         * Delete a single data tag category.
+         * Deletes a data tag category and its tags.
          *
          * @example
          * ```ts
@@ -101180,7 +106532,7 @@ var BaseDataTagCategories = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/dlp/data_tag_categories/${categoryID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve a specific data tag category.
+         * Gets a data tag category and its tags.
          *
          * @example
          * ```ts
@@ -101234,7 +106586,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseDataTags = /* @__PURE__ */ (() => {
     class BaseDataTags extends resource_1.APIResource {
         /**
-         * Creates a new data tag.
+         * Creates a data tag in a category.
          *
          * @example
          * ```ts
@@ -101253,7 +106605,7 @@ var BaseDataTags = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update the attributes of a single data tag.
+         * Updates a data tag in a category.
          *
          * @example
          * ```ts
@@ -101272,7 +106624,7 @@ var BaseDataTags = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/dlp/data_tag_categories/${category_id}/data_tags/${tagID}`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve all data tags in a data tag category
+         * Lists data tags in a category.
          *
          * @example
          * ```ts
@@ -101290,7 +106642,7 @@ var BaseDataTags = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dlp/data_tag_categories/${categoryID}/data_tags`, (pagination_1.SinglePage), options);
         }
         /**
-         * Delete a single data tag.
+         * Deletes a data tag from a category.
          *
          * @example
          * ```ts
@@ -101309,7 +106661,7 @@ var BaseDataTags = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/dlp/data_tag_categories/${category_id}/data_tags/${tagID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve a specific data tag.
+         * Gets a data tag from a category.
          *
          * @example
          * ```ts
@@ -101432,7 +106784,7 @@ var BaseDatasets = /* @__PURE__ */ (() => {
             });
         }
         /**
-         * Fetch a specific dataset
+         * Gets a dataset and its latest upload status.
          *
          * @example
          * ```ts
@@ -101907,7 +107259,7 @@ var BaseRules = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/accounts/${account_id}/dlp/email/rules`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update email scanner rule
+         * Updates a DLP email scanning rule.
          *
          * @example
          * ```ts
@@ -102953,7 +108305,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseLevels = /* @__PURE__ */ (() => {
     class BaseLevels extends resource_1.APIResource {
         /**
-         * Creates a new sensitivity level.
+         * Creates a sensitivity level in a group.
          *
          * @example
          * ```ts
@@ -102972,7 +108324,7 @@ var BaseLevels = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update the attributes of a single sensitivity level.
+         * Updates a sensitivity level in a group.
          *
          * @example
          * ```ts
@@ -102992,7 +108344,7 @@ var BaseLevels = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/dlp/sensitivity_groups/${sensitivity_group_id}/levels/${sensitivityLevelID}`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve all sensitivity levels in a sensitivity group
+         * Lists sensitivity levels in a sensitivity group.
          *
          * @example
          * ```ts
@@ -103010,7 +108362,7 @@ var BaseLevels = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dlp/sensitivity_groups/${sensitivityGroupID}/levels`, (pagination_1.SinglePage), options);
         }
         /**
-         * Delete a single sensitivity level.
+         * Deletes a sensitivity level from a group.
          *
          * @example
          * ```ts
@@ -103030,7 +108382,7 @@ var BaseLevels = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/dlp/sensitivity_groups/${sensitivity_group_id}/levels/${sensitivityLevelID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve a specific sensitivity level.
+         * Gets a sensitivity level from a group.
          *
          * @example
          * ```ts
@@ -103083,7 +108435,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseOrder = /* @__PURE__ */ (() => {
     class BaseOrder extends resource_1.APIResource {
         /**
-         * Set the ordering of levels within a sensitivity group.
+         * Updates the order of sensitivity levels in a group.
          *
          * @example
          * ```ts
@@ -103102,7 +108454,7 @@ var BaseOrder = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/dlp/sensitivity_groups/${sensitivityGroupID}/level_order`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve the ordered list of level IDs for a sensitivity group.
+         * Gets the current order of sensitivity levels in a group.
          *
          * @example
          * ```ts
@@ -103146,7 +108498,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseSensitivityGroups = /* @__PURE__ */ (() => {
     class BaseSensitivityGroups extends resource_1.APIResource {
         /**
-         * Creates a new sensitivity group.
+         * Creates a sensitivity group, optionally from a template.
          *
          * @example
          * ```ts
@@ -103165,7 +108517,7 @@ var BaseSensitivityGroups = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Update the attributes of a single sensitivity group.
+         * Updates a sensitivity group and its levels.
          *
          * @example
          * ```ts
@@ -103184,7 +108536,7 @@ var BaseSensitivityGroups = /* @__PURE__ */ (() => {
             })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve all sensitivity groups in an account
+         * Lists sensitivity groups configured for the account.
          *
          * @example
          * ```ts
@@ -103201,7 +108553,7 @@ var BaseSensitivityGroups = /* @__PURE__ */ (() => {
             return this._client.getAPIList((0, path_1.path) `/accounts/${account_id}/dlp/sensitivity_groups`, (pagination_1.SinglePage), options);
         }
         /**
-         * Delete a single sensitivity group.
+         * Deletes a sensitivity group and its levels.
          *
          * @example
          * ```ts
@@ -103217,7 +108569,7 @@ var BaseSensitivityGroups = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/dlp/sensitivity_groups/${sensitivityGroupID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Retrieve a specific sensitivity group.
+         * Gets a sensitivity group and its levels.
          *
          * @example
          * ```ts
@@ -103285,7 +108637,7 @@ var BaseSettings = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/accounts/${account_id}/dlp/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Delete (reset) DLP account-level settings to initial values.
+         * Deletes account-level DLP settings and returns the initial values.
          *
          * @example
          * ```ts
@@ -103315,7 +108667,7 @@ var BaseSettings = /* @__PURE__ */ (() => {
             return this._client.patch((0, path_1.path) `/accounts/${account_id}/dlp/settings`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get DLP account-level settings.
+         * Gets the account-level DLP settings.
          *
          * @example
          * ```ts
@@ -105519,6 +110871,68 @@ exports.CloudflareSource = CloudflareSource;
 
 /***/ }),
 
+/***/ 99868:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.InitialResolvedIP = exports.BaseInitialResolvedIP = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseInitialResolvedIP = /* @__PURE__ */ (() => {
+    class BaseInitialResolvedIP extends resource_1.APIResource {
+        /**
+         * Updates the CIDR for the account's default Initial Resolved IP Subnet of the
+         * given address family. The new CIDR must not conflict with existing private
+         * routes in the account.
+         *
+         * @example
+         * ```ts
+         * const subnet =
+         *   await client.zeroTrust.networks.subnets.initialResolvedIP.update(
+         *     'v4',
+         *     { account_id: '699d98642c564d2e855e9661899b7252' },
+         *   );
+         * ```
+         */
+        update(addressFamily, params, options) {
+            const { account_id, ...body } = params;
+            return this._client.put((0, path_1.path) `/accounts/${account_id}/zerotrust/subnets/initial_resolved_ip/${addressFamily}`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Returns the account's default Initial Resolved IP Subnet for the given address
+         * family.
+         *
+         * @example
+         * ```ts
+         * const subnet =
+         *   await client.zeroTrust.networks.subnets.initialResolvedIP.get(
+         *     'v4',
+         *     { account_id: '699d98642c564d2e855e9661899b7252' },
+         *   );
+         * ```
+         */
+        get(addressFamily, params, options) {
+            const { account_id } = params;
+            return this._client.get((0, path_1.path) `/accounts/${account_id}/zerotrust/subnets/initial_resolved_ip/${addressFamily}`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseInitialResolvedIP._key = Object.freeze(['zeroTrust', 'networks', 'subnets', 'initialResolvedIP']);
+    return BaseInitialResolvedIP;
+})();
+exports.BaseInitialResolvedIP = BaseInitialResolvedIP;
+class InitialResolvedIP extends BaseInitialResolvedIP {
+}
+exports.InitialResolvedIP = InitialResolvedIP;
+//# sourceMappingURL=initial-resolved-ip.js.map
+
+/***/ }),
+
 /***/ 41569:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -105531,6 +110945,8 @@ const tslib_1 = __nccwpck_require__(67590);
 const resource_1 = __nccwpck_require__(85550);
 const CloudflareSourceAPI = tslib_1.__importStar(__nccwpck_require__(13424));
 const cloudflare_source_1 = __nccwpck_require__(13424);
+const InitialResolvedIPAPI = tslib_1.__importStar(__nccwpck_require__(99868));
+const initial_resolved_ip_1 = __nccwpck_require__(99868);
 const WARPAPI = tslib_1.__importStar(__nccwpck_require__(47701));
 const warp_1 = __nccwpck_require__(47701);
 const pagination_1 = __nccwpck_require__(86242);
@@ -105569,12 +110985,15 @@ var Subnets = /* @__PURE__ */ (() => {
             super(...arguments);
             this.warp = new WARPAPI.WARP(this._client);
             this.cloudflareSource = new CloudflareSourceAPI.CloudflareSource(this._client);
+            this.initialResolvedIP = new InitialResolvedIPAPI.InitialResolvedIP(this._client);
         }
     }
     Subnets.WARP = warp_1.WARP;
     Subnets.BaseWARP = warp_1.BaseWARP;
     Subnets.CloudflareSource = cloudflare_source_1.CloudflareSource;
     Subnets.BaseCloudflareSource = cloudflare_source_1.BaseCloudflareSource;
+    Subnets.InitialResolvedIP = initial_resolved_ip_1.InitialResolvedIP;
+    Subnets.BaseInitialResolvedIP = initial_resolved_ip_1.BaseInitialResolvedIP;
     return Subnets;
 })();
 exports.Subnets = Subnets;
@@ -106084,7 +111503,7 @@ var BaseApplications = /* @__PURE__ */ (() => {
          * ```ts
          * const application =
          *   await client.zeroTrust.resourceLibrary.applications.get(
-         *     '0b63249c-95bf-4cc0-a7cc-d7faaaf1dac0',
+         *     498,
          *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
          *   );
          * ```
@@ -106146,7 +111565,7 @@ var BaseCategories = /* @__PURE__ */ (() => {
          * ```ts
          * const category =
          *   await client.zeroTrust.resourceLibrary.categories.get(
-         *     '0b63249c-95bf-4cc0-a7cc-d7faaaf1dac0',
+         *     12,
          *     { account_id: '023e105f4ecef8ad9ca31a8372d0c353' },
          *   );
          * ```
@@ -106376,7 +111795,7 @@ var BaseIntegrations = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/accounts/${account_id}/zt_risk_scoring/integrations/${integrationID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Get risk score integration by id.
+         * Gets a Zero Trust risk score integration by ID.
          *
          * @example
          * ```ts
@@ -107647,19 +113066,22 @@ var BaseAlerting = /* @__PURE__ */ (() => {
         /**
          * Create or update the Certificate Transparency alerting subscription for a zone.
          * Enables or disables email notifications when certificates are issued for the
-         * zone's domains. For Free and Pro zones, the subscription is toggled on or off
-         * using the enabled field. Notification emails are sent to all users with SSL
-         * permissions on the zone. For Business and Enterprise zones, the emails field is
-         * required and controls which addresses receive alerts. Setting emails to an empty
-         * list disables the subscription regardless of the enabled field. A maximum of 10
-         * email addresses may be configured.
+         * zone's domains. The `enabled` field is required on every request and controls
+         * whether the subscription is active. The `emails` field is optional and, when
+         * provided, replaces the stored recipient list for the zone. When `emails` is
+         * omitted, the stored recipient list is preserved and only the enabled state is
+         * toggled. A maximum of 100 email addresses may be configured per zone. Requests
+         * that omit `enabled` are rejected with error code 1008. Subscribe and unsubscribe
+         * notification emails are only sent for recipients whose effective subscription
+         * state changes. Idempotent requests (no state change) send no notification email.
          *
          * @example
          * ```ts
-         * const response = await client.zones.ct.alerting.edit({
-         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-         *   enabled: true,
-         * });
+         * const ctAlertingSubscription =
+         *   await client.zones.ct.alerting.edit({
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     enabled: true,
+         *   });
          * ```
          */
         edit(params, options) {
@@ -107668,14 +113090,15 @@ var BaseAlerting = /* @__PURE__ */ (() => {
         }
         /**
          * Retrieve the Certificate Transparency alerting subscription settings for a zone.
-         * Returns whether CT monitoring is enabled and, for Business and Enterprise zones,
-         * the list of email addresses that receive alerts.
+         * Returns whether CT monitoring is enabled and the list of email addresses that
+         * receive alerts, if any have been configured.
          *
          * @example
          * ```ts
-         * const alerting = await client.zones.ct.alerting.get({
-         *   zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
-         * });
+         * const ctAlertingSubscription =
+         *   await client.zones.ct.alerting.get({
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
          * ```
          */
         get(params, options) {
@@ -107808,7 +113231,7 @@ const path_1 = __nccwpck_require__(91121);
 var BaseEnvironments = /* @__PURE__ */ (() => {
     class BaseEnvironments extends resource_1.APIResource {
         /**
-         * Create zone environments
+         * Creates environments for a zone.
          *
          * @example
          * ```ts
@@ -107832,7 +113255,7 @@ var BaseEnvironments = /* @__PURE__ */ (() => {
             return this._client.post((0, path_1.path) `/zones/${zone_id}/environments`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Upsert zone environments
+         * Replaces the full environment configuration for a zone.
          *
          * @example
          * ```ts
@@ -107856,7 +113279,7 @@ var BaseEnvironments = /* @__PURE__ */ (() => {
             return this._client.put((0, path_1.path) `/zones/${zone_id}/environments`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * List zone environments
+         * Lists configured environments for a zone.
          *
          * @example
          * ```ts
@@ -107870,7 +113293,7 @@ var BaseEnvironments = /* @__PURE__ */ (() => {
             return this._client.get((0, path_1.path) `/zones/${zone_id}/environments`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Delete zone environment
+         * Deletes a zone environment by reference identifier.
          *
          * @example
          * ```ts
@@ -107885,7 +113308,7 @@ var BaseEnvironments = /* @__PURE__ */ (() => {
             return this._client.delete((0, path_1.path) `/zones/${zone_id}/environments/${environmentID}`, options)._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Partially update zone environments
+         * Applies partial updates to zone environments.
          *
          * @example
          * ```ts
@@ -107909,7 +113332,7 @@ var BaseEnvironments = /* @__PURE__ */ (() => {
             return this._client.patch((0, path_1.path) `/zones/${zone_id}/environments`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Roll back zone environment
+         * Rolls a zone environment back to its previous version.
          *
          * @example
          * ```ts
@@ -108261,6 +113684,138 @@ exports.Subscriptions = Subscriptions;
 
 /***/ }),
 
+/***/ 34533:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TransformationsAllowedOrigins = exports.BaseTransformationsAllowedOrigins = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseTransformationsAllowedOrigins = /* @__PURE__ */ (() => {
+    class BaseTransformationsAllowedOrigins extends resource_1.APIResource {
+        /**
+         * Media Transformations Allowed Origins restricts transformations for images and
+         * video served through Cloudflare's network to requests originating from specified
+         * domains. Refer to the Image Transformations and Video Transformations
+         * documentation for more information.
+         *
+         * @example
+         * ```ts
+         * const transformationsAllowedOrigins =
+         *   await client.zones.transformationsAllowedOrigins.edit({
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     value: 'example.com,cdn.example.com',
+         *   });
+         * ```
+         */
+        edit(params, options) {
+            const { zone_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/zones/${zone_id}/settings/transformations_allowed_origins`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * Media Transformations Allowed Origins restricts transformations for images and
+         * video served through Cloudflare's network to requests originating from specified
+         * domains. Refer to the Image Transformations and Video Transformations
+         * documentation for more information.
+         *
+         * @example
+         * ```ts
+         * const transformationsAllowedOrigins =
+         *   await client.zones.transformationsAllowedOrigins.get({
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
+         * ```
+         */
+        get(params, options) {
+            const { zone_id } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/settings/transformations_allowed_origins`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseTransformationsAllowedOrigins._key = Object.freeze([
+        'zones',
+        'transformationsAllowedOrigins',
+    ]);
+    return BaseTransformationsAllowedOrigins;
+})();
+exports.BaseTransformationsAllowedOrigins = BaseTransformationsAllowedOrigins;
+class TransformationsAllowedOrigins extends BaseTransformationsAllowedOrigins {
+}
+exports.TransformationsAllowedOrigins = TransformationsAllowedOrigins;
+//# sourceMappingURL=transformations-allowed-origins.js.map
+
+/***/ }),
+
+/***/ 16413:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TransformationsC2paResource = exports.BaseTransformationsC2paResource = void 0;
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+const resource_1 = __nccwpck_require__(85550);
+const path_1 = __nccwpck_require__(91121);
+var BaseTransformationsC2paResource = /* @__PURE__ */ (() => {
+    class BaseTransformationsC2paResource extends resource_1.APIResource {
+        /**
+         * C2PA (Coalition for Content Provenance and Authenticity) signing adds
+         * cryptographic metadata to images processed through Cloudflare Image
+         * Transformations, enabling verification of image authenticity and provenance.
+         *
+         * @example
+         * ```ts
+         * const transformationsC2pa =
+         *   await client.zones.transformationsC2pa.edit({
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *     value: 'off',
+         *   });
+         * ```
+         */
+        edit(params, options) {
+            const { zone_id, ...body } = params;
+            return this._client.patch((0, path_1.path) `/zones/${zone_id}/settings/transformations_c2pa`, {
+                body,
+                ...options,
+            })._thenUnwrap((obj) => obj.result);
+        }
+        /**
+         * C2PA (Coalition for Content Provenance and Authenticity) signing adds
+         * cryptographic metadata to images processed through Cloudflare Image
+         * Transformations, enabling verification of image authenticity and provenance.
+         *
+         * @example
+         * ```ts
+         * const transformationsC2pa =
+         *   await client.zones.transformationsC2pa.get({
+         *     zone_id: '023e105f4ecef8ad9ca31a8372d0c353',
+         *   });
+         * ```
+         */
+        get(params, options) {
+            const { zone_id } = params;
+            return this._client.get((0, path_1.path) `/zones/${zone_id}/settings/transformations_c2pa`, options)._thenUnwrap((obj) => obj.result);
+        }
+    }
+    BaseTransformationsC2paResource._key = Object.freeze([
+        'zones',
+        'transformationsC2pa',
+    ]);
+    return BaseTransformationsC2paResource;
+})();
+exports.BaseTransformationsC2paResource = BaseTransformationsC2paResource;
+class TransformationsC2paResource extends BaseTransformationsC2paResource {
+}
+exports.TransformationsC2paResource = TransformationsC2paResource;
+//# sourceMappingURL=transformations-c2pa.js.map
+
+/***/ }),
+
 /***/ 62419:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -108287,6 +113842,10 @@ const SettingsAPI = tslib_1.__importStar(__nccwpck_require__(2767));
 const settings_1 = __nccwpck_require__(2767);
 const SubscriptionsAPI = tslib_1.__importStar(__nccwpck_require__(686));
 const subscriptions_1 = __nccwpck_require__(686);
+const TransformationsAllowedOriginsAPI = tslib_1.__importStar(__nccwpck_require__(34533));
+const transformations_allowed_origins_1 = __nccwpck_require__(34533);
+const TransformationsC2paAPI = tslib_1.__importStar(__nccwpck_require__(16413));
+const transformations_c2pa_1 = __nccwpck_require__(16413);
 const CTAPI = tslib_1.__importStar(__nccwpck_require__(57655));
 const ct_1 = __nccwpck_require__(57655);
 const pagination_1 = __nccwpck_require__(86242);
@@ -108294,7 +113853,11 @@ const path_1 = __nccwpck_require__(91121);
 var BaseZones = /* @__PURE__ */ (() => {
     class BaseZones extends resource_1.APIResource {
         /**
-         * Create Zone
+         * Creates a new zone (domain) in your Cloudflare account.
+         *
+         * The zone is created in a pending state and must be activated by updating your
+         * domain's nameservers to point to Cloudflare, or by completing the verification
+         * process for partial (CNAME) setups.
          *
          * @example
          * ```ts
@@ -108351,7 +113914,9 @@ var BaseZones = /* @__PURE__ */ (() => {
             return this._client.patch((0, path_1.path) `/zones/${zone_id}`, { body, ...options })._thenUnwrap((obj) => obj.result);
         }
         /**
-         * Zone Details
+         * Retrieves detailed information about a specific zone identified by its zone ID.
+         *
+         * Returns zone configuration, status, nameservers, and associated metadata.
          *
          * @example
          * ```ts
@@ -108375,6 +113940,8 @@ var Zones = /* @__PURE__ */ (() => {
             super(...arguments);
             this.activationCheck = new ActivationCheckAPI.ActivationCheck(this._client);
             this.settings = new SettingsAPI.Settings(this._client);
+            this.transformationsAllowedOrigins = new TransformationsAllowedOriginsAPI.TransformationsAllowedOrigins(this._client);
+            this.transformationsC2pa = new TransformationsC2paAPI.TransformationsC2paResource(this._client);
             this.environments = new EnvironmentsAPI.Environments(this._client);
             this.customNameservers = new CustomNameserversAPI.CustomNameservers(this._client);
             this.holds = new HoldsAPI.Holds(this._client);
@@ -108388,6 +113955,9 @@ var Zones = /* @__PURE__ */ (() => {
     Zones.BaseActivationCheck = activation_check_1.BaseActivationCheck;
     Zones.Settings = settings_1.Settings;
     Zones.BaseSettings = settings_1.BaseSettings;
+    Zones.BaseTransformationsAllowedOrigins = transformations_allowed_origins_1.BaseTransformationsAllowedOrigins;
+    Zones.TransformationsC2paResource = transformations_c2pa_1.TransformationsC2paResource;
+    Zones.BaseTransformationsC2paResource = transformations_c2pa_1.BaseTransformationsC2paResource;
     Zones.Environments = environments_1.Environments;
     Zones.BaseEnvironments = environments_1.BaseEnvironments;
     Zones.CustomNameservers = custom_nameservers_1.CustomNameservers;
@@ -108416,7 +113986,7 @@ exports.Zones = Zones;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.VERSION = void 0;
-exports.VERSION = '7.0.0';
+exports.VERSION = '7.1.0'; // x-release-please-version
 //# sourceMappingURL=version.js.map
 
 /***/ })
